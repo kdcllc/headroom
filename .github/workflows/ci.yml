@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3 python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
             libadwaita-1-0 gir1.2-glib-2.0 policykit-1 desktop-file-utils appstream \
-            python3-pytest xvfb gettext dpkg-dev debhelper dh-python lintian
+            python3-pytest xvfb dbus gettext dpkg-dev debhelper dh-python lintian
           pipx install ruff
       - name: Toolkit versions
         run: python3 -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw','1'); from gi.repository import Gtk, Adw; print(Gtk.get_major_version(), Gtk.get_minor_version(), Adw.get_major_version(), Adw.get_minor_version())"
@@ -34,7 +34,14 @@ jobs:
       - name: Unit tests
         run: /usr/bin/python3 -m pytest tests --ignore=tests/ui -q
       - name: GUI smoke tests
-        run: xvfb-run -a -s "-screen 0 1280x900x24" env GDK_BACKEND=x11 /usr/bin/python3 -m pytest tests/ui -q
+        timeout-minutes: 5 # they take seconds; a hang should fail fast, not burn the 6h default
+        # isolated session bus with nothing activatable + no a11y bridge: Adw/GTK startup otherwise
+        # blocks on xdg-desktop-portal / at-spi D-Bus calls on headless runners
+        # faulthandler_timeout dumps every thread's stack if a test stalls, so the log shows where
+        run: >-
+          dbus-run-session --config-file=tests/ui/dbus-session.conf -- xvfb-run -a -s "-screen 0 1280x900x24"
+          env GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1
+          /usr/bin/python3 -m pytest tests/ui -v -o faulthandler_timeout=60
       - name: Build .deb
         run: |
           dpkg-buildpackage -us -uc -b
