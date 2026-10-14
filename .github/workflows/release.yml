@@ -1,0 +1,93 @@
+name: Release
+
+# Publishes a GitHub Release with the .deb whenever a pull request is merged into master.
+# Each release is versioned <__version__>+r<run number> (e.g. 0.1.0+r7), so every merge
+# yields a unique, apt-upgradeable package. Bump __version__ in headroom/__init__.py for
+# feature releases.
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch: # manual release of the current master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    # closed-without-merge PRs never release
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+  release:
+    needs: checks
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # create the tag and the release
+    env:
+      SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 dpkg-dev debhelper dh-python
+
+      - name: Compute version
+        id: v
+        run: |
+          base=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' headroom/__init__.py)
+          echo "version=${base}+r${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${base}-r${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp version
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+          # untrusted text: passed through env, never interpolated into the script
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [ -n "$PR_NUMBER" ]; then msg="Merged PR #$PR_NUMBER: $PR_TITLE"; else msg="Manual release build."; fi
+          scripts/set-version.sh "$VERSION" "$msg"
+
+      - name: Build .deb
+        run: |
+          dpkg-buildpackage -us -uc -b
+          mkdir -p dist
+          mv ../headroom_*_all.deb dist/
+          cp dist/headroom_*_all.deb dist/headroom_latest_all.deb
+          (cd dist && sha256sum *.deb > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          deb="headroom_${VERSION}_all.deb"
+          {
+            if [ -n "$PR_NUMBER" ]; then
+              printf 'Built from #%s: %s\n\n' "$PR_NUMBER" "$PR_TITLE"
+            fi
+            printf '## Install on Ubuntu 22.04\n\n'
+            printf '```sh\nsha256sum -c --ignore-missing SHA256SUMS\nsudo apt install ./%s\n```\n\n' "$deb"
+            printf 'Always-current download: `https://github.com/%s/releases/latest/download/headroom_latest_all.deb`\n\n' "$GITHUB_REPOSITORY"
+          } > notes.md
+          gh release create "$TAG" dist/"$deb" dist/headroom_latest_all.deb dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" \
+            --title "Headroom $VERSION" \
+            --notes-file notes.md \
+            --generate-notes \
+            --latest

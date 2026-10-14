@@ -35,7 +35,16 @@ python3 -c "import gi; gi.require_version('Gtk','4.0'); gi.require_version('Adw'
 # expected: 4 6 1 1
 ```
 
-### From the .deb (recommended: enables system cleaning)
+### From a GitHub Release (recommended: enables system cleaning)
+
+Every pull request merged into `master` publishes a release with the `.deb` attached (see [Releases](#releases)):
+
+```sh
+wget https://github.com/kdcllc/headroom/releases/latest/download/headroom_latest_all.deb
+sudo apt install ./headroom_latest_all.deb
+```
+
+### From the .deb built locally
 
 ```sh
 scripts/build-deb.sh dist              # dpkg-deb build, needs only dpkg (verified here)
@@ -180,6 +189,23 @@ make pot         # needs gettext: xgettext -> po/headroom.pot
 ```
 
 CI (`.github/workflows/ci.yml`) runs on `ubuntu-22.04`. It installs the apt dependencies above, runs ruff, the unit tests and the GUI tests under xvfb, builds the `.deb` with `dpkg-buildpackage` and runs lintian.
+
+## Releases
+
+`.github/workflows/release.yml` runs when a pull request is **merged** into `master`; PRs closed without merging are ignored. You can also start it by hand (*Actions → Release → Run workflow*).
+
+1. It reruns the full CI workflow on the merge commit. If any check fails, nothing is published.
+2. It stamps the version `<__version__>+r<run number>` (e.g. `0.1.0+r7`) into `headroom/__init__.py` and `debian/changelog` with `scripts/set-version.sh`. Each merge gets a unique version that `apt` sees as an upgrade.
+3. It builds the package with `dpkg-buildpackage` and creates the GitHub Release `v0.1.0-r7` on that commit, with these assets:
+   - `headroom_<version>_all.deb`
+   - `headroom_latest_all.deb`, a stable name for the `releases/latest/download/` link
+   - `SHA256SUMS`
+
+   The release notes show the PR title plus GitHub's generated changelog.
+
+For a feature release, bump `__version__` in `headroom/__init__.py` in the PR (e.g. to `0.2.0`); the next merge publishes `0.2.0+rN`.
+
+The workflow needs **Settings → Actions → General → Workflow permissions** to allow the job's `contents: write` token, which is the default for personal repositories.
 
 ## Why not Flatpak or Snap
 

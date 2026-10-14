@@ -2,12 +2,21 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call: # reused by release.yml as the gate before publishing
+    inputs:
+      ref:
+        description: Commit to test (defaults to the triggering commit)
+        type: string
+        required: false
+        default: ""
 
 jobs:
   test:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: Install Jammy dependencies (apt only, as on a user machine)
         run: |
           sudo apt-get update
@@ -30,8 +39,7 @@ jobs:
         run: |
           dpkg-buildpackage -us -uc -b
           mkdir -p dist && mv ../headroom_*_all.deb dist/
-          lintian --fail-on error dist/*.deb || true
-          lintian dist/*.deb
+          lintian --fail-on error --info dist/*.deb  # warnings are shown, errors fail the build
       - uses: actions/upload-artifact@v4
         with:
           name: headroom-deb
