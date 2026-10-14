@@ -21,7 +21,9 @@ def idle(fn, *args):
         callback_threads.append(threading.current_thread() is threading.main_thread())
         fn(*args)
         return GLib.SOURCE_REMOVE
-    GLib.idle_add(run)
+    # DEFAULT, not DEFAULT_IDLE: with software GL (VMs, Xvfb) redraws of a running spinner can keep
+    # the loop busy forever, starving idle-priority sources so a scan never reports completion
+    GLib.idle_add(run, priority=GLib.PRIORITY_DEFAULT)
 
 
 class Throttle:
