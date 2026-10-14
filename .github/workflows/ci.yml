@@ -34,7 +34,7 @@ jobs:
       - name: Unit tests
         run: /usr/bin/python3 -m pytest tests --ignore=tests/ui -q
       - name: GUI smoke tests
-        timeout-minutes: 5 # they take seconds; a hang should fail fast, not burn the 6h default
+        timeout-minutes: 2 # they take seconds; a hang should fail fast, not burn the 6h default
         # isolated session bus with nothing activatable + no a11y bridge: Adw/GTK startup otherwise
         # blocks on xdg-desktop-portal / at-spi D-Bus calls on headless runners
         # faulthandler_timeout dumps every thread's stack if a test stalls, so the log shows where

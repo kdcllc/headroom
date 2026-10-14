@@ -13,12 +13,15 @@ from gi.repository import Gio, GLib  # noqa: E402
 def iterate_until(cond, timeout=30.0):
     ctx = GLib.MainContext.default()
     end = time.time() + timeout
+    # check cond/deadline after every event: on CI an animating widget (spinner frame clock under
+    # Xvfb) can keep the context permanently pending, so "drain until idle" would never return
     while time.time() < end:
-        while ctx.pending():
+        if ctx.pending():
             ctx.iteration(False)
+        else:
+            time.sleep(0.01)
         if cond():
             return True
-        time.sleep(0.01)
     return False
 
 
