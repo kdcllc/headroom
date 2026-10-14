@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+# Pure-Python app installed without setuptools: files are placed by
+# debian/install and dh_python3 byte-compiles and computes ${python3:Depends}.
+export PYBUILD_NAME=headroom
+
+%:
+	dh $@ --with python3 --buildsystem=none
+
+override_dh_auto_test:
+	# unit tests run in CI with pytest; keep the package build hermetic
+
+override_dh_fixperms:
+	dh_fixperms
+	chmod 0755 debian/headroom/usr/libexec/headroom/headroom-helper
+	chmod 0755 debian/headroom/usr/bin/headroom

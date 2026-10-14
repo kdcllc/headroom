@@ -1,0 +1,2 @@
+org.gnome.Platform/x86_64/42
+org.freedesktop.Platform/x86_64/22.08

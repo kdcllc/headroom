@@ -1,0 +1,8 @@
+headroom usr/lib/python3/dist-packages/
+data/cleaners usr/share/headroom/
+data/headroom usr/bin/
+helper/headroom-helper usr/libexec/headroom/
+data/io.github.kdcllc.Headroom.desktop usr/share/applications/
+data/io.github.kdcllc.Headroom.metainfo.xml usr/share/metainfo/
+data/io.github.kdcllc.Headroom.policy usr/share/polkit-1/actions/
+data/io.github.kdcllc.Headroom.svg usr/share/icons/hicolor/scalable/apps/

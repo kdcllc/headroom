@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Headroom
+GenericName=Disk Space Cleaner
+Comment=Free up disk space safely
+Exec=headroom
+Icon=io.github.kdcllc.Headroom
+Terminal=false
+Categories=GTK;GNOME;System;Utility;
+Keywords=disk;space;clean;cache;junk;
+StartupNotify=true

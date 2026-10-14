@@ -1,0 +1,38 @@
+/* Headroom — GTK 4.6 / libadwaita 1.1 */
+
+.badge {
+  font-size: smaller;
+  font-weight: bold;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.badge.safe { background-color: alpha(@success_color, 0.18); color: @success_color; }
+.badge.caution { background-color: alpha(@warning_color, 0.22); color: @warning_color; }
+.badge.advanced { background-color: alpha(@error_color, 0.18); color: @error_color; }
+
+.dry-run-pill {
+  font-size: smaller;
+  font-weight: bold;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background-color: alpha(@warning_color, 0.25);
+  color: @warning_color;
+}
+
+.size-label {
+  font-feature-settings: "tnum";
+  min-width: 80px;
+}
+
+.sidebar-size {
+  font-size: smaller;
+  font-feature-settings: "tnum";
+}
+
+.mono { font-family: monospace; }
+
+.selection-total { font-weight: bold; }
+
+.log-view { font-family: monospace; font-size: smaller; }
+
+.running-warning { color: @warning_color; }

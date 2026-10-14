@@ -1,0 +1,33 @@
+[
+  {
+    "id": "docker", "label": "Docker", "category": "Docker",
+    "options": [
+      {"id": "docker.builder", "overlap": "build-cache", "label": "Build cache (dangling)",
+       "description": "Runs `docker builder prune -f`. Uses your account if you are in the docker group, otherwise the system helper.",
+       "rating": "safe", "method": "command", "command": "docker.builder", "command_only": true,
+       "root_fallback": {"id": "docker.builder"}, "probe": "docker_df:Build Cache"},
+      {"id": "docker.builder_all", "overlap": "build-cache", "label": "All build cache",
+       "description": "Runs `docker builder prune -f --all`; the next builds start without cache.",
+       "rating": "caution", "method": "command", "command": "docker.builder_all", "command_only": true,
+       "root_fallback": {"id": "docker.builder", "params": {"all": true}}, "probe": "docker_df:Build Cache"},
+      {"id": "docker.system", "overlap": "build-cache", "label": "Stopped containers, unused networks, dangling images",
+       "description": "Runs `docker system prune -f`. Stopped containers are removed with their writable layer.",
+       "rating": "caution", "method": "command", "command": "docker.system", "command_only": true,
+       "root_fallback": {"id": "docker.system"}, "probe": "docker_df:Containers+Build Cache"},
+      {"id": "docker.images_all", "label": "All images not used by a container",
+       "description": "Runs `docker image prune -a -f`. Images are pulled or rebuilt again when needed.",
+       "rating": "caution", "method": "command", "command": "docker.images_all", "command_only": true,
+       "root_fallback": {"id": "docker.images_all"}, "probe": "docker_df:Images"},
+      {"id": "docker.volumes", "overlap": "volumes", "label": "Unused anonymous volumes",
+       "description": "Runs `docker volume prune -f` (Engine 23+: anonymous volumes only). Volumes may hold databases.",
+       "rating": "advanced", "method": "command", "command": "docker.volumes", "command_only": true,
+       "root_fallback": {"id": "docker.volumes"}, "probe": "docker_df:Local Volumes",
+       "extra_confirmation": "I understand unused volumes may contain database data that will be lost"},
+      {"id": "docker.volumes_all", "overlap": "volumes", "label": "All unused volumes, including named ones",
+       "description": "Runs `docker volume prune -a -f`. Named volumes of stopped projects (databases!) are deleted permanently.",
+       "rating": "advanced", "method": "command", "command": "docker.volumes_all", "command_only": true,
+       "root_fallback": {"id": "docker.volumes", "params": {"all": true}}, "probe": "docker_df:Local Volumes",
+       "extra_confirmation": "I understand ALL unused named volumes and their data will be deleted"}
+    ]
+  }
+]

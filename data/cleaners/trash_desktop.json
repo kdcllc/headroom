@@ -1,0 +1,80 @@
+[
+  {
+    "id": "trash", "label": "Trash", "category": "Trash & Desktop",
+    "options": [
+      {
+        "id": "trash.home",
+        "label": "Empty the home Trash",
+        "description": "Permanently deletes everything in ~/.local/share/Trash (files and their .trashinfo records, plus expunged leftovers). This cannot be undone.",
+        "rating": "caution",
+        "targets": [
+          {"mode": "contents", "path": "~/.local/share/Trash/files", "companions": true},
+          {"mode": "contents", "path": "~/.local/share/Trash/expunged"}
+        ]
+      },
+      {
+        "id": "trash.removable",
+        "label": "Trash on removable drives",
+        "description": "Trash folders on mounted drives under /media/$USER. Permanently deleted.",
+        "rating": "caution",
+        "targets": [
+          {"mode": "contents", "path": "/media/{user}/*/.Trash-{uid}/files", "companions": true},
+          {"mode": "contents", "path": "/media/{user}/*/.Trash/{uid}/files", "companions": true}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "xsession", "label": "X session logs", "category": "Trash & Desktop",
+    "options": [
+      {
+        "id": "xsession.errors",
+        "label": "X session error logs",
+        "description": "~/.xsession-errors is emptied (not deleted); ~/.xsession-errors.old is removed.",
+        "rating": "safe",
+        "targets": [
+          {"mode": "truncate", "path": "~/.xsession-errors"},
+          {"mode": "file", "path": "~/.xsession-errors.old"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "recent-files", "label": "Recent files list", "category": "Trash & Desktop",
+    "options": [
+      {
+        "id": "recent-files.xbel",
+        "label": "Recently used files list",
+        "description": "Resets ~/.local/share/recently-used.xbel to an empty, valid list. The Recent view in Files becomes empty.",
+        "rating": "caution",
+        "method": "reset_xbel",
+        "targets": [{"mode": "file", "path": "~/.local/share/recently-used.xbel"}]
+      }
+    ]
+  },
+  {
+    "id": "gvfs-metadata", "label": "Files (Nautilus) metadata", "category": "Trash & Desktop",
+    "running": {"process_names": ["nautilus", "gvfsd-metadata"]},
+    "options": [
+      {
+        "id": "gvfs-metadata.data",
+        "label": "Per-file metadata",
+        "description": "Nautilus per-file metadata. Custom folder icons, emblems and per-folder view settings are lost.",
+        "rating": "caution",
+        "targets": [{"mode": "contents", "path": "~/.local/share/gvfs-metadata"}]
+      }
+    ]
+  },
+  {
+    "id": "core-dumps", "label": "Core dumps in Home", "category": "Trash & Desktop",
+    "options": [
+      {
+        "id": "core-dumps.home",
+        "label": "Stray core dump files",
+        "description": "~/core and ~/core.* files that are verified ELF core dumps.",
+        "rating": "safe",
+        "targets": [{"mode": "glob", "path": "~/core*", "selector": "elf_core"}]
+      }
+    ]
+  }
+]

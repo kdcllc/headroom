@@ -1,0 +1,37 @@
+{
+  "template": "chromium_app",
+  "description": "Generic Electron/Chromium app: cache subfolders only. Var: root (list). Never Local Storage, IndexedDB, Session Storage, Cookies or databases.",
+  "options": [
+    {
+      "id": "{id}.cache",
+      "label": "HTTP, code and GPU caches",
+      "description": "Cache, Code Cache, GPUCache, Dawn*, GrShaderCache, ShaderCache and service-worker caches. Rebuilt automatically.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{root}/Cache"},
+        {"mode": "contents", "path": "{root}/Code Cache"},
+        {"mode": "contents", "path": "{root}/GPUCache"},
+        {"mode": "contents", "path": "{root}/DawnCache"},
+        {"mode": "contents", "path": "{root}/DawnWebGPUCache"},
+        {"mode": "contents", "path": "{root}/DawnGraphiteCache"},
+        {"mode": "contents", "path": "{root}/GrShaderCache"},
+        {"mode": "contents", "path": "{root}/ShaderCache"},
+        {"mode": "contents", "path": "{root}/Service Worker/CacheStorage"},
+        {"mode": "contents", "path": "{root}/Service Worker/ScriptCache"}
+      ]
+    },
+    {
+      "id": "{id}.logs",
+      "label": "Logs and crash dumps",
+      "description": "logs/ and Crashpad completed/pending reports.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{root}/logs"},
+        {"mode": "contents", "path": "{root}/Crashpad/completed"},
+        {"mode": "contents", "path": "{root}/Crashpad/pending"}
+      ]
+    }
+  ]
+}

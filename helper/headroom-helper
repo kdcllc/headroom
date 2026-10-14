@@ -1,0 +1,869 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Headroom privileged helper (runs as root via pkexec).
+
+Usage:
+    headroom-helper --plan-stdin   < {"actions": [{"id": "apt.clean"}, ...]}
+    headroom-helper --scan
+
+Security model:
+  * Accepts ONLY action ids from the hard-coded ACTIONS table plus bounded
+    integer/boolean parameters. Never accepts paths or shell strings.
+  * Every subprocess: argv list, shell=False, fixed PATH, LANG=C, timeout.
+  * Filesystem removal works on directory file descriptors with O_NOFOLLOW,
+    never follows symlinks and never crosses filesystems.
+  * Stdlib only; does not rely on $HOME or $DISPLAY (pkexec clears them).
+"""
+
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+VERSION = "0.1.0"
+ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
+MAX_PLAN_BYTES = 65536
+MAX_ACTIONS = 32
+DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+
+# Fixed locations (module-level so tests can point them at a temp dir).
+APT_ARCHIVES = "/var/cache/apt/archives"
+APT_LISTS = "/var/lib/apt/lists"
+JOURNAL_DIR = "/var/log/journal"
+VAR_LOG = "/var/log"
+SNAPS_DIR = "/var/lib/snapd/snaps"
+SNAP_CACHE = "/var/lib/snapd/cache"
+VAR_CRASH = "/var/crash"
+COREDUMP_DIRS = ("/var/lib/apport/coredump", "/var/lib/systemd/coredump")
+VAR_TMP = "/var/tmp"
+TMP = "/tmp"
+MAN_CACHE = "/var/cache/man"
+FONT_CACHE = "/var/cache/fontconfig"
+FLATPAK_SYSTEM = "/var/lib/flatpak"
+JOURNALD_DROPIN = "/etc/systemd/journald.conf.d/50-headroom.conf"
+PROC = "/proc"
+
+TMP_SKIP = (".X11-unix", ".ICE-unix", ".XIM-unix", ".font-unix", ".Test-unix",
+            "systemd-private-", "snap-private-tmp", ".X0-lock", ".X1-lock", "tmux-")
+ROTATED_RE = re.compile(r"(\.(gz|xz|bz2|zst|old)|\.\d+(\.(gz|xz|bz2|zst))?)$")
+SNAP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+PKG_RE = re.compile(r"^[a-z0-9][a-z0-9+.-]*(:[a-z0-9-]+)?$")
+
+# action id -> {param: (kind, lo, hi, default)}
+PARAMS = {
+    "apt.clean": {},
+    "apt.autoclean": {},
+    "apt.autoremove": {},
+    "apt.lists": {},
+    "journal.vacuum": {"size_mb": ("int", 50, 100000, 200), "days": ("int", 1, 3650, 14)},
+    "journal.cap": {"max_mb": ("int", 100, 100000, 500)},
+    "logs.rotated": {},
+    "logs.truncate_large": {"threshold_mb": ("int", 500, 1000000, 500)},
+    "snap.disabled": {},
+    "snap.retain": {"value": ("int", 2, 20, 2)},
+    "snap.cache": {},
+    "crash.var": {},
+    "crash.coredump": {},
+    "tmp.var": {"days": ("int", 7, 365, 30)},
+    "tmp.tmp": {"days": ("int", 1, 365, 10)},
+    "cache.man": {},
+    "cache.fontconfig": {},
+    "flatpak.system_unused": {},
+    "docker.builder": {"all": ("bool", 0, 1, False), "until_hours": ("int", 0, 8760, 0)},
+    "docker.system": {},
+    "docker.images_all": {},
+    "docker.volumes": {"all": ("bool", 0, 1, False)},
+}
+
+
+class PlanError(ValueError):
+    pass
+
+
+# --------------------------------------------------------------------------
+# plumbing
+# --------------------------------------------------------------------------
+
+def run(argv, timeout=1800, extra_env=None):
+    """Run a fixed command. Returns (returncode, stdout, stderr)."""
+    if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
+        raise TypeError("argv must be a list of str")
+    env = dict(ENV)
+    if extra_env:
+        env.update(extra_env)
+    try:
+        cp = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                            shell=False, env=env, check=False, stdin=subprocess.DEVNULL)
+        return cp.returncode, cp.stdout, cp.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "", "timed out"
+    except OSError as exc:
+        return -1, "", str(exc)
+
+
+def tail(text, n=400):
+    text = (text or "").strip()
+    return text[-n:]
+
+
+def have(tool):
+    for d in ENV["PATH"].split(":"):
+        p = os.path.join(d, tool)
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return True
+    return False
+
+
+def validate_plan(obj):
+    """Return [(id, params)] or raise PlanError. Rejects anything unexpected."""
+    if not isinstance(obj, dict) or set(obj) != {"actions"}:
+        raise PlanError("plan must be an object with only 'actions'")
+    actions = obj["actions"]
+    if not isinstance(actions, list) or not actions or len(actions) > MAX_ACTIONS:
+        raise PlanError("'actions' must be a non-empty list")
+    out = []
+    seen = set()
+    for a in actions:
+        if not isinstance(a, dict) or not isinstance(a.get("id"), str):
+            raise PlanError("each action needs a string id")
+        aid = a["id"]
+        if aid not in PARAMS:
+            raise PlanError(f"unknown action id: {aid[:64]!r}")
+        if aid in seen:
+            raise PlanError(f"duplicate action: {aid}")
+        seen.add(aid)
+        spec = PARAMS[aid]
+        params = {}
+        for k, v in a.items():
+            if k == "id":
+                continue
+            if k not in spec:
+                raise PlanError(f"{aid}: unexpected parameter {k[:32]!r}")
+            kind, lo, hi, _ = spec[k]
+            if kind == "bool":
+                if not isinstance(v, bool):
+                    raise PlanError(f"{aid}.{k} must be a boolean")
+            else:
+                if isinstance(v, bool) or not isinstance(v, int):
+                    raise PlanError(f"{aid}.{k} must be an integer")
+                if not lo <= v <= hi:
+                    raise PlanError(f"{aid}.{k} out of range [{lo}, {hi}]")
+            params[k] = v
+        for k, (_, _, _, default) in spec.items():
+            params.setdefault(k, default)
+        out.append((aid, params))
+    return out
+
+
+# --------------------------------------------------------------------------
+# safe filesystem operations (fd-based, no symlink following)
+# --------------------------------------------------------------------------
+
+def freed_by(st):
+    if stat.S_ISDIR(st.st_mode) or st.st_nlink <= 1:
+        return st.st_blocks * 512
+    return 0
+
+
+def open_files():
+    out = set()
+    try:
+        pids = [p for p in os.listdir(PROC) if p.isdigit()]
+    except OSError:
+        return out
+    for pid in pids:
+        fd_dir = os.path.join(PROC, pid, "fd")
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                st = os.stat(os.path.join(fd_dir, fd))
+                out.add((st.st_dev, st.st_ino))
+            except OSError:
+                pass
+    return out
+
+
+def open_root(path):
+    """Open a fixed root directory; refuse if any component is a symlink."""
+    fd = os.open("/", DIR_FLAGS)
+    try:
+        for part in [p for p in path.split("/") if p]:
+            nfd = os.open(part, DIR_FLAGS, dir_fd=fd)
+            os.close(fd)
+            fd = nfd
+    except OSError:
+        os.close(fd)
+        raise
+    return fd
+
+
+class Counter:
+    def __init__(self):
+        self.freed = 0
+        self.files = 0
+        self.errors = []
+
+    def err(self, msg):
+        if len(self.errors) < 20:
+            self.errors.append(msg)
+
+
+def rm_at(pfd, name, dev, c, depth=0):
+    """Remove *name* (file or tree) inside dir fd *pfd*."""
+    try:
+        st = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+    except FileNotFoundError:
+        return True
+    except OSError as exc:
+        c.err(f"{name}: {exc.strerror}")
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        try:
+            os.unlink(name, dir_fd=pfd)
+            c.freed += freed_by(st)
+            c.files += 1
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError as exc:
+            c.err(f"{name}: {exc.strerror}")
+            return False
+    if st.st_dev != dev or depth > 200:
+        c.err(f"{name}: skipped (other filesystem or too deep)")
+        return False
+    try:
+        fd = os.open(name, DIR_FLAGS, dir_fd=pfd)
+    except OSError as exc:
+        c.err(f"{name}: {exc.strerror}")
+        return False
+    ok = True
+    try:
+        fst = os.fstat(fd)
+        if (fst.st_dev, fst.st_ino) != (st.st_dev, st.st_ino):
+            return False
+        with os.scandir(fd) as it:
+            names = [e.name for e in it]
+        for child in names:
+            ok = rm_at(fd, child, dev, c, depth + 1) and ok
+    finally:
+        os.close(fd)
+    if ok:
+        try:
+            os.rmdir(name, dir_fd=pfd)
+            c.freed += st.st_blocks * 512
+        except OSError as exc:
+            c.err(f"{name}: {exc.strerror}")
+            ok = False
+    return ok
+
+
+def clean_children(root, keep=lambda name, st: False, c=None, dry=False):
+    """Delete every child of *root* except those *keep* returns True for."""
+    c = c or Counter()
+    try:
+        fd = open_root(root)
+    except OSError as exc:
+        if not isinstance(exc, FileNotFoundError):
+            c.err(f"{root}: {exc.strerror}")
+        return c
+    try:
+        dev = os.fstat(fd).st_dev
+        with os.scandir(fd) as it:
+            names = [e.name for e in it]
+        for name in names:
+            try:
+                st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except OSError:
+                continue
+            if keep(name, st):
+                continue
+            if dry:
+                c.freed += du_at(fd, name, dev)
+            else:
+                rm_at(fd, name, dev, c)
+    finally:
+        os.close(fd)
+    return c
+
+
+def du_at(pfd, name, dev, seen=None):
+    seen = seen if seen is not None else set()
+    try:
+        st = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+    except OSError:
+        return 0
+    if st.st_dev != dev:
+        return 0
+    key = (st.st_dev, st.st_ino)
+    total = 0
+    if key not in seen:
+        seen.add(key)
+        total += st.st_blocks * 512
+    if stat.S_ISDIR(st.st_mode):
+        try:
+            fd = os.open(name, DIR_FLAGS, dir_fd=pfd)
+        except OSError:
+            return total
+        try:
+            with os.scandir(fd) as it:
+                names = [e.name for e in it]
+            for child in names:
+                total += du_at(fd, child, dev, seen)
+        finally:
+            os.close(fd)
+    return total
+
+
+def du(path):
+    try:
+        parent = os.path.dirname(path.rstrip("/")) or "/"
+        fd = open_root(parent)
+    except OSError:
+        return 0
+    try:
+        return du_at(fd, os.path.basename(path.rstrip("/")), os.fstat(fd).st_dev)
+    finally:
+        os.close(fd)
+
+
+def walk_files(root, visit, c, dry, depth_limit=64):
+    """Visit regular files below *root* via fds; *visit(rel, st)* -> delete?
+
+    Directories are descended without following symlinks; empty directories
+    are left in place (except by explicit callers).
+    """
+    try:
+        fd = open_root(root)
+    except OSError:
+        return c
+    dev = os.fstat(fd).st_dev
+
+    def rec(dfd, rel, depth):
+        try:
+            with os.scandir(dfd) as it:
+                names = [e.name for e in it]
+        except OSError:
+            return
+        for name in names:
+            child_rel = f"{rel}/{name}" if rel else name
+            try:
+                st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+            except OSError:
+                continue
+            if st.st_dev != dev:
+                continue
+            if stat.S_ISDIR(st.st_mode):
+                if depth >= depth_limit or not visit(child_rel, st, True):
+                    continue
+                try:
+                    cfd = os.open(name, DIR_FLAGS, dir_fd=dfd)
+                except OSError:
+                    continue
+                try:
+                    rec(cfd, child_rel, depth + 1)
+                finally:
+                    os.close(cfd)
+            elif stat.S_ISREG(st.st_mode) and visit(child_rel, st, False):
+                if dry:
+                    c.freed += freed_by(st)
+                    c.files += 1
+                    continue
+                try:
+                    # re-check identity right before unlinking
+                    st2 = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+                    if (st2.st_dev, st2.st_ino) != (st.st_dev, st.st_ino):
+                        continue
+                    os.unlink(name, dir_fd=dfd)
+                    c.freed += freed_by(st)
+                    c.files += 1
+                except OSError as exc:
+                    c.err(f"{child_rel}: {exc.strerror}")
+
+    try:
+        rec(fd, "", 0)
+    finally:
+        os.close(fd)
+    return c
+
+
+def result(aid, ok, freed=0, stderr="", **extra):
+    out = {"id": aid, "ok": bool(ok), "freed_bytes": int(max(0, freed)),
+           "stderr_tail": tail(stderr)}
+    out.update(extra)
+    return out
+
+
+def from_counter(aid, c, **extra):
+    return result(aid, not c.errors, c.freed, "\n".join(c.errors), files=c.files, **extra)
+
+
+# --------------------------------------------------------------------------
+# parsers (duplicated from headroom.core.parsers on purpose: the helper
+# must not import user-modifiable code)
+# --------------------------------------------------------------------------
+
+_DEC = {"b": 1, "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4}
+_BIN = {"b": 1, "k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}
+
+
+def parse_journal_usage(text):
+    m = re.search(r"take up\s+([\d.]+)\s*([BKMGT])", text or "")
+    return int(float(m.group(1)) * _BIN[m.group(2).lower()]) if m else 0
+
+
+def parse_disabled_snaps(text):
+    out = []
+    for line in (text or "").splitlines()[1:]:
+        f = line.split()
+        if len(f) >= 6 and "disabled" in f[-1].split(",") and f[2].isdigit() \
+                and SNAP_NAME_RE.match(f[0]):
+            out.append((f[0], f[2]))
+    return out
+
+
+def parse_apt_removals(text):
+    pkgs = []
+    for line in (text or "").splitlines():
+        m = re.match(r"^(Remv|Purg)\s+(\S+)", line)
+        if m and m.group(2) not in pkgs:
+            pkgs.append(m.group(2))
+    return pkgs
+
+
+def parse_docker_reclaimed(text):
+    m = re.search(r"(?:Total reclaimed space|Total):\s*([\d.]+)\s*([kKMGT]?B)", text or "")
+    return int(float(m.group(1)) * _DEC[m.group(2).lower()]) if m else 0
+
+
+def parse_docker_df(text):
+    out = {}
+    for line in (text or "").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        m = re.match(r"\s*([\d.]+)\s*([kKMGT]?B)", row.get("Reclaimable", ""))
+        out[row.get("Type")] = int(float(m.group(1)) * _DEC[m.group(2).lower()]) if m else 0
+    return out
+
+
+# --------------------------------------------------------------------------
+# actions
+# --------------------------------------------------------------------------
+
+def _apt_archive_size():
+    def is_deb(rel, st, is_dir):
+        return is_dir and rel == "partial" or (not is_dir and (rel.endswith(".deb") or rel.startswith("partial/")))
+    return walk_files(APT_ARCHIVES, is_deb, Counter(), dry=True).freed
+
+
+def act_apt_clean(p, sub="clean"):
+    before = _apt_archive_size()
+    rc, out, err = run(["apt-get", sub], timeout=600)
+    after = _apt_archive_size()
+    return result(f"apt.{sub}", rc == 0, before - after, err)
+
+
+def act_apt_autoclean(p):
+    return act_apt_clean(p, "autoclean")
+
+
+def act_apt_autoremove(p):
+    rc, out, err = run(["apt-get", "-s", "autoremove", "--purge"], timeout=300)
+    if rc != 0:
+        return result("apt.autoremove", False, 0, err)
+    pkgs = parse_apt_removals(out)
+    if not pkgs:
+        return result("apt.autoremove", True, 0, "", packages=[])
+    kernel = os.uname().release
+    if any(pkg.split(":")[0].endswith("-" + kernel) for pkg in pkgs):
+        return result("apt.autoremove", False, 0,
+                      f"refusing: removal list contains the running kernel {kernel}")
+    if not all(PKG_RE.match(pkg) for pkg in pkgs):
+        return result("apt.autoremove", False, 0, "unexpected package name in apt output")
+    rc, sizes, _ = run(["dpkg-query", "-W", "-f=${Installed-Size}\\n", *pkgs], timeout=60)
+    size = sum(int(x) * 1024 for x in sizes.split() if x.isdigit())
+    rc, out, err = run(["apt-get", "-y", "autoremove", "--purge"], timeout=3600,
+                       extra_env={"DEBIAN_FRONTEND": "noninteractive"})
+    return result("apt.autoremove", rc == 0, size if rc == 0 else 0, err, packages=pkgs)
+
+
+def act_apt_lists(p):
+    c = clean_children(APT_LISTS, keep=lambda name, st: name in ("lock", "partial")
+                       or not stat.S_ISREG(st.st_mode))
+    rc, out, err = run(["apt-get", "update"], timeout=1800)
+    if rc != 0:
+        c.err("apt-get update failed: " + tail(err, 200))
+    return from_counter("apt.lists", c)
+
+
+def act_journal_vacuum(p):
+    _, before, _ = run(["journalctl", "--disk-usage"], timeout=60)
+    errs = []
+    for argv in (["journalctl", "--rotate"],
+                 ["journalctl", f"--vacuum-size={p['size_mb']}M"],
+                 ["journalctl", f"--vacuum-time={p['days']}d"]):
+        rc, out, err = run(argv, timeout=600)
+        if rc != 0:
+            errs.append(tail(err, 200))
+    _, after, _ = run(["journalctl", "--disk-usage"], timeout=60)
+    freed = parse_journal_usage(before) - parse_journal_usage(after)
+    return result("journal.vacuum", not errs, freed, "\n".join(errs))
+
+
+def act_journal_cap(p):
+    d = os.path.dirname(JOURNALD_DROPIN)
+    os.makedirs(d, mode=0o755, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".headroom-")
+    with os.fdopen(fd, "w") as fh:
+        fh.write("# Written by Headroom\n[Journal]\n")
+        fh.write(f"SystemMaxUse={p['max_mb']}M\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, JOURNALD_DROPIN)
+    rc, _, err = run(["systemctl", "restart", "systemd-journald"], timeout=120)
+    return result("journal.cap", rc == 0, 0, err)
+
+
+def act_logs_rotated(p, dry=False):
+    def visit(rel, st, is_dir):
+        if is_dir:
+            return rel.split("/")[0] != "journal"
+        return bool(ROTATED_RE.search(rel)) and not rel.startswith("journal/")
+    return from_counter("logs.rotated", walk_files(VAR_LOG, visit, Counter(), dry))
+
+
+def act_logs_truncate_large(p, dry=False):
+    limit = p["threshold_mb"] * 1024 * 1024
+    c = Counter()
+    targets = []
+
+    def visit(rel, st, is_dir):
+        if is_dir:
+            return rel.split("/")[0] != "journal"
+        if st.st_size > limit and not ROTATED_RE.search(rel):
+            targets.append((rel, st))
+        return False
+
+    walk_files(VAR_LOG, visit, c, dry=True)
+    for rel, st in targets:
+        if dry:
+            c.freed += st.st_blocks * 512
+            continue
+        try:
+            parent = os.path.join(VAR_LOG, os.path.dirname(rel))
+            pfd = open_root(parent)
+            try:
+                fd = os.open(os.path.basename(rel), os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                             | os.O_CLOEXEC, dir_fd=pfd)
+            finally:
+                os.close(pfd)
+            try:
+                fst = os.fstat(fd)
+                if (fst.st_dev, fst.st_ino) == (st.st_dev, st.st_ino) and stat.S_ISREG(fst.st_mode):
+                    os.ftruncate(fd, 0)
+                    c.freed += st.st_blocks * 512
+                    c.files += 1
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            c.err(f"{rel}: {exc.strerror}")
+    return from_counter("logs.truncate_large", c)
+
+
+def _disabled_snaps():
+    rc, out, err = run(["snap", "list", "--all", "--color=never", "--unicode=never"], timeout=120)
+    return parse_disabled_snaps(out) if rc == 0 else []
+
+
+def _snap_size(name, rev):
+    try:
+        return os.lstat(os.path.join(SNAPS_DIR, f"{name}_{rev}.snap")).st_blocks * 512
+    except OSError:
+        return 0
+
+
+def act_snap_disabled(p):
+    freed = 0
+    errs = []
+    removed = []
+    for name, rev in _disabled_snaps():
+        size = _snap_size(name, rev)
+        rc, out, err = run(["snap", "remove", name, f"--revision={rev}"], timeout=900)
+        if rc == 0:
+            freed += size
+            removed.append(f"{name}_{rev}")
+        else:
+            errs.append(f"{name} r{rev}: {tail(err, 200)}")
+    return result("snap.disabled", not errs, freed, "\n".join(errs), removed=removed)
+
+
+def act_snap_retain(p):
+    rc, out, err = run(["snap", "set", "system", f"refresh.retain={p['value']}"], timeout=60)
+    return result("snap.retain", rc == 0, 0, err)
+
+
+def act_snap_cache(p, dry=False):
+    return from_counter("snap.cache", walk_files(SNAP_CACHE, lambda r, st, d: not d,
+                                                 Counter(), dry, depth_limit=1))
+
+
+def act_crash_var(p, dry=False):
+    def visit(rel, st, is_dir):
+        return not is_dir and rel.endswith((".crash", ".upload", ".uploaded"))
+    return from_counter("crash.var", walk_files(VAR_CRASH, visit, Counter(), dry, depth_limit=1))
+
+
+def act_crash_coredump(p, dry=False):
+    c = Counter()
+    for d in COREDUMP_DIRS:
+        walk_files(d, lambda r, st, is_dir: not is_dir, c, dry, depth_limit=1)
+    return from_counter("crash.coredump", c)
+
+
+def _tmp_visit(days, skip_open, old_dirs):
+    cutoff = time.time() - days * 86400
+    recent = time.time() - 86400
+    open_set = open_files() if skip_open else set()
+
+    def visit(rel, st, is_dir):
+        top = rel.split("/")[0]
+        if any(top == s or top.startswith(s) for s in TMP_SKIP):
+            return False
+        if is_dir:
+            if st.st_mtime < cutoff:
+                old_dirs.add((st.st_dev, st.st_ino))  # before we touch its contents
+            return True
+        if st.st_mtime > recent or st.st_mtime > cutoff or st.st_atime > cutoff:
+            return False
+        return (st.st_dev, st.st_ino) not in open_set
+    return visit
+
+
+def _rm_empty_old_dirs(root, days, dry, old_dirs=frozenset()):
+    """Remove now-empty old subdirectories (bottom-up, never the root).
+
+    *old_dirs* were old before this run emptied them (emptying bumps mtime).
+    """
+    if dry:
+        return
+    cutoff = time.time() - days * 86400
+    try:
+        fd = open_root(root)
+    except OSError:
+        return
+    dev = os.fstat(fd).st_dev
+
+    def rec(dfd, depth):
+        try:
+            with os.scandir(dfd) as it:
+                names = [e.name for e in it]
+        except OSError:
+            return
+        for name in names:
+            if depth == 0 and any(name == s or name.startswith(s) for s in TMP_SKIP):
+                continue
+            try:
+                st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+            except OSError:
+                continue
+            if not stat.S_ISDIR(st.st_mode) or st.st_dev != dev or depth > 64:
+                continue
+            try:
+                cfd = os.open(name, DIR_FLAGS, dir_fd=dfd)
+            except OSError:
+                continue
+            try:
+                rec(cfd, depth + 1)
+            finally:
+                os.close(cfd)
+            if st.st_mtime < cutoff or (st.st_dev, st.st_ino) in old_dirs:
+                try:
+                    os.rmdir(name, dir_fd=dfd)  # fails (harmlessly) unless empty
+                except OSError:
+                    pass
+    try:
+        rec(fd, 0)
+    finally:
+        os.close(fd)
+
+
+def act_tmp(aid, root, p, dry=False):
+    old_dirs = set()
+    c = walk_files(root, _tmp_visit(p["days"], True, old_dirs), Counter(), dry)
+    _rm_empty_old_dirs(root, p["days"], dry, old_dirs)
+    return from_counter(aid, c)
+
+
+def act_tmp_var(p, dry=False):
+    return act_tmp("tmp.var", VAR_TMP, p, dry)
+
+
+def act_tmp_tmp(p, dry=False):
+    return act_tmp("tmp.tmp", TMP, p, dry)
+
+
+def act_cache_man(p, dry=False):
+    return from_counter("cache.man", clean_children(MAN_CACHE, dry=dry))
+
+
+def act_cache_fontconfig(p, dry=False):
+    c = clean_children(FONT_CACHE, dry=dry)
+    if not dry and have("fc-cache"):
+        rc, _, err = run(["fc-cache", "-s"], timeout=600)
+        if rc != 0:
+            c.err("fc-cache -s: " + tail(err, 200))
+    return from_counter("cache.fontconfig", c)
+
+
+def act_flatpak_system(p):
+    if not have("flatpak"):
+        return result("flatpak.system_unused", True, 0, "flatpak not installed")
+    before = du(FLATPAK_SYSTEM)
+    rc, out, err = run(["flatpak", "uninstall", "--system", "--unused", "-y",
+                        "--noninteractive"], timeout=1800)
+    return result("flatpak.system_unused", rc == 0, before - du(FLATPAK_SYSTEM), err)
+
+
+def _docker(aid, args):
+    if not have("docker"):
+        return result(aid, False, 0, "docker is not installed")
+    rc, out, err = run(["docker", *args], timeout=3600)
+    return result(aid, rc == 0, parse_docker_reclaimed(out), err)
+
+
+def act_docker_builder(p):
+    args = ["builder", "prune", "-f"]
+    if p["all"]:
+        args.append("--all")
+    if p["until_hours"]:
+        args += ["--filter", f"until={p['until_hours']}h"]
+    return _docker("docker.builder", args)
+
+
+def act_docker_system(p):
+    return _docker("docker.system", ["system", "prune", "-f"])
+
+
+def act_docker_images_all(p):
+    return _docker("docker.images_all", ["image", "prune", "-a", "-f"])
+
+
+def act_docker_volumes(p):
+    return _docker("docker.volumes", ["volume", "prune", "-f", *(["--all"] if p["all"] else [])])
+
+
+ACTIONS = {
+    "apt.clean": act_apt_clean,
+    "apt.autoclean": act_apt_autoclean,
+    "apt.autoremove": act_apt_autoremove,
+    "apt.lists": act_apt_lists,
+    "journal.vacuum": act_journal_vacuum,
+    "journal.cap": act_journal_cap,
+    "logs.rotated": act_logs_rotated,
+    "logs.truncate_large": act_logs_truncate_large,
+    "snap.disabled": act_snap_disabled,
+    "snap.retain": act_snap_retain,
+    "snap.cache": act_snap_cache,
+    "crash.var": act_crash_var,
+    "crash.coredump": act_crash_coredump,
+    "tmp.var": act_tmp_var,
+    "tmp.tmp": act_tmp_tmp,
+    "cache.man": act_cache_man,
+    "cache.fontconfig": act_cache_fontconfig,
+    "flatpak.system_unused": act_flatpak_system,
+    "docker.builder": act_docker_builder,
+    "docker.system": act_docker_system,
+    "docker.images_all": act_docker_images_all,
+    "docker.volumes": act_docker_volumes,
+}
+assert set(ACTIONS) == set(PARAMS)
+
+# actions whose size can be computed with a dry walk
+DRY_SIZERS = {
+    "logs.rotated": act_logs_rotated,
+    "logs.truncate_large": act_logs_truncate_large,
+    "snap.cache": act_snap_cache,
+    "crash.var": act_crash_var,
+    "crash.coredump": act_crash_coredump,
+    "tmp.var": act_tmp_var,
+    "tmp.tmp": act_tmp_tmp,
+    "cache.man": act_cache_man,
+    "cache.fontconfig": act_cache_fontconfig,
+}
+
+
+def scan():
+    """Sizes for root-only items. Read-only."""
+    out = []
+    defaults = {aid: {k: v[3] for k, v in spec.items()} for aid, spec in PARAMS.items()}
+    out.append({"id": "apt.clean", "size_bytes": _apt_archive_size()})
+    _, usage, _ = run(["journalctl", "--disk-usage"], timeout=60)
+    out.append({"id": "journal.vacuum", "size_bytes": parse_journal_usage(usage)})
+    out.append({"id": "snap.disabled",
+                "size_bytes": sum(_snap_size(n, r) for n, r in _disabled_snaps())})
+    for aid, fn in DRY_SIZERS.items():
+        try:
+            out.append({"id": aid, "size_bytes": fn(defaults[aid], dry=True)["freed_bytes"]})
+        except OSError:
+            pass
+    if have("docker"):
+        rc, df, _ = run(["docker", "system", "df", "--format", "{{json .}}"], timeout=120)
+        if rc == 0:
+            d = parse_docker_df(df)
+            out.append({"id": "docker.builder", "size_bytes": d.get("Build Cache", 0)})
+            out.append({"id": "docker.system", "size_bytes": d.get("Containers", 0) + d.get("Build Cache", 0)})
+            out.append({"id": "docker.images_all", "size_bytes": d.get("Images", 0)})
+            out.append({"id": "docker.volumes", "size_bytes": d.get("Local Volumes", 0)})
+    return out
+
+
+def execute(plan):
+    lines = []
+    for aid, params in plan:
+        try:
+            lines.append(ACTIONS[aid](params))
+        except Exception as exc:  # report and continue with the next action
+            lines.append(result(aid, False, 0, f"{type(exc).__name__}: {exc}"))
+        print(json.dumps(lines[-1]), flush=True)
+    return lines
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["--version"]:
+        print(VERSION)
+        return 0
+    if argv not in (["--scan"], ["--plan-stdin"]):
+        print("usage: headroom-helper --scan | --plan-stdin", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0:
+        print("headroom-helper must run as root (via pkexec)", file=sys.stderr)
+        return 2
+    os.umask(0o022)
+    os.chdir("/")
+    if argv == ["--scan"]:
+        for line in scan():
+            print(json.dumps(line), flush=True)
+        return 0
+    raw = sys.stdin.read(MAX_PLAN_BYTES + 1)
+    if len(raw) > MAX_PLAN_BYTES:
+        print(json.dumps({"id": None, "ok": False, "error": "plan too large"}), flush=True)
+        return 2
+    try:
+        plan = validate_plan(json.loads(raw))
+    except (ValueError, PlanError) as exc:
+        print(json.dumps({"id": None, "ok": False, "error": str(exc)}), flush=True)
+        return 2
+    lines = execute(plan)
+    return 0 if all(line["ok"] for line in lines) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

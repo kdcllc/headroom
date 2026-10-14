@@ -1,0 +1,104 @@
+[
+  {
+    "id": "thumbnails", "label": "Thumbnails", "category": "User Caches",
+    "options": [
+      {
+        "id": "thumbnails.cache",
+        "label": "Thumbnail cache",
+        "description": "Image and video previews (normal, large, x-large, xx-large, fail). Regenerated when folders are browsed.",
+        "rating": "safe",
+        "targets": [{"mode": "contents", "path": "~/.cache/thumbnails"}]
+      }
+    ]
+  },
+  {
+    "id": "gpu-shaders", "label": "GPU shader caches", "category": "User Caches",
+    "options": [
+      {
+        "id": "gpu-shaders.cache",
+        "label": "Mesa, NVIDIA and RADV shader caches",
+        "description": "Compiled GPU shaders. Rebuilt on demand; games may stutter briefly the first time.",
+        "rating": "safe",
+        "targets": [
+          {"mode": "contents", "path": "~/.cache/mesa_shader_cache"},
+          {"mode": "contents", "path": "~/.cache/mesa_shader_cache_db"},
+          {"mode": "contents", "path": "~/.cache/nvidia/GLCache"},
+          {"mode": "glob", "path": "~/.cache/radv_builtin_shaders*"},
+          {"mode": "contents", "path": "~/snap/*/common/.cache/mesa_shader_cache"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fontconfig-user", "label": "Font cache", "category": "User Caches",
+    "options": [
+      {
+        "id": "fontconfig-user.cache",
+        "label": "Fontconfig cache",
+        "description": "Per-user font cache; rebuilt automatically.",
+        "rating": "safe",
+        "targets": [{"mode": "contents", "path": "~/.cache/fontconfig"}]
+      }
+    ]
+  },
+  {
+    "id": "tracker", "label": "GNOME Tracker", "category": "User Caches",
+    "running": {"process_names": ["tracker-miner-f", "tracker-miner-fs-3"]},
+    "options": [
+      {
+        "id": "tracker.cache",
+        "label": "Search index (tracker3)",
+        "description": "File search index; GNOME rebuilds it in the background.",
+        "rating": "safe",
+        "targets": [{"mode": "contents", "path": "~/.cache/tracker3"}]
+      }
+    ]
+  },
+  {
+    "id": "apport-user", "label": "Apport", "category": "User Caches",
+    "options": [
+      {
+        "id": "apport-user.cache",
+        "label": "Apport client cache",
+        "description": "Crash-report helper cache.",
+        "rating": "safe",
+        "targets": [{"mode": "contents", "path": "~/.cache/apport"}]
+      }
+    ]
+  },
+  {
+    "id": "flatpak-app-caches", "label": "Flatpak app caches", "category": "User Caches",
+    "options": [
+      {
+        "id": "flatpak-app-caches.cache",
+        "label": "Per-app Flatpak caches",
+        "description": "~/.var/app/<app>/cache for each Flatpak app. Close the app first.",
+        "rating": "safe",
+        "split": true,
+        "targets": [{"mode": "dir", "path": "~/.var/app/*/cache"}]
+      }
+    ]
+  },
+  {
+    "id": "other-caches", "label": "Other application caches (~/.cache)", "category": "User Caches",
+    "options": [
+      {
+        "id": "other-caches.child",
+        "label": "Per-application cache folder",
+        "description": "Everything else in ~/.cache, one row per folder. Usually regenerable, but the owning application must be closed and may need to re-download or rebuild data.",
+        "rating": "caution",
+        "split": true,
+        "exclude_known": true,
+        "targets": [{"mode": "contents", "path": "~/.cache",
+                     "exclude": ["thumbnails", "mesa_shader_cache", "mesa_shader_cache_db", "nvidia",
+                                 "fontconfig", "tracker3", "apport", "pip", "uv", "pypoetry",
+                                 "yarn", "node-gyp", "go-build", "huggingface", "torch",
+                                 "JetBrains", "composer", "Homebrew", "electron", "electron-builder",
+                                 "ms-playwright", "puppeteer", "Cypress", "unity3d", "mozilla",
+                                 "google-chrome", "chromium", "BraveSoftware", "microsoft-edge",
+                                 "spotify", "bundle", "librewolf", "radv_builtin_shaders*",
+                                 "headroom", "ibus", "dconf", "keyring-*"]}]
+      }
+    ]
+  }
+]

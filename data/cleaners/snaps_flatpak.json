@@ -1,0 +1,31 @@
+[
+  {
+    "id": "snaps", "label": "Snap packages", "category": "Snaps & Flatpak",
+    "options": [
+      {"id": "snap.disabled", "label": "Disabled snap revisions",
+       "description": "Old revisions kept by snapd for rollback (`snap remove <name> --revision=<rev>`). Close affected snaps first.",
+       "rating": "safe", "root": true, "method": "root_action",
+       "root_action": {"id": "snap.disabled"}, "probe": "snap_disabled"},
+      {"id": "snap.retain", "label": "Keep fewer revisions in future",
+       "description": "Runs `snap set system refresh.retain=<n>` with the value from Preferences (2–20).",
+       "rating": "caution", "root": true, "method": "root_action",
+       "root_action": {"id": "snap.retain", "params": {"value": "$snap_retain"}}, "note": "setting"},
+      {"id": "snap.cache", "label": "Downloaded snap blobs",
+       "description": "/var/lib/snapd/cache. Mostly hard links to installed snaps; only unshared files free space.",
+       "rating": "safe", "root": true, "method": "root_action", "root_action": {"id": "snap.cache"}}
+    ]
+  },
+  {
+    "id": "flatpak", "label": "Flatpak", "category": "Snaps & Flatpak",
+    "options": [
+      {"id": "flatpak.user_unused", "label": "Unused runtimes (your account)",
+       "description": "Runs `flatpak uninstall --user --unused -y`. Size is an estimate.",
+       "rating": "safe", "method": "command", "command": "flatpak.user_unused", "command_only": true,
+       "probe": "flatpak_user_unused"},
+      {"id": "flatpak.system_unused", "label": "Unused runtimes (system)",
+       "description": "Runs `flatpak uninstall --system --unused -y`. Size is an estimate.",
+       "rating": "safe", "root": true, "method": "root_action",
+       "root_action": {"id": "flatpak.system_unused"}, "probe": "flatpak_system_unused"}
+    ]
+  }
+]

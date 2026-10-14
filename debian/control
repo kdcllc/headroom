@@ -1,0 +1,22 @@
+Source: headroom
+Section: utils
+Priority: optional
+Maintainer: kdcllc <info@kingdavidconsulting.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3 (>= 3.10)
+Standards-Version: 4.6.0
+Homepage: https://github.com/kdcllc/headroom
+Rules-Requires-Root: no
+
+Package: headroom
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends},
+         python3 (>= 3.10), python3-gi (>= 3.42), gir1.2-gtk-4.0 (>= 4.6), gir1.2-adw-1 (>= 1.1),
+         policykit-1
+Recommends: flatpak, docker.io | docker-ce
+Suggests: baobab
+Description: safe disk-space cleaner for Ubuntu 22.04 (GTK4/libadwaita)
+ Headroom scans editor, Electron and browser caches, developer package
+ caches, logs, old snap revisions, Docker leftovers, the Trash and large
+ files, shows the real on-disk size of each item, previews exactly what will
+ be removed and cleans only what you select. Root-only actions run through a
+ small polkit helper that accepts only a fixed list of action IDs.

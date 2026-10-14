@@ -1,0 +1,167 @@
+{
+  "template": "electron_editor",
+  "description": "VS Code-family editor (Cursor, VS Code, Insiders, VSCodium). Vars: config, ext, server.",
+  "options": [
+    {
+      "id": "{id}.cache",
+      "label": "HTTP, code and GPU caches",
+      "description": "Chromium HTTP cache, V8 compiled JavaScript, GPU and WebGPU shader caches. Rebuilt automatically.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{config}/Cache"},
+        {"mode": "contents", "path": "{config}/Code Cache"},
+        {"mode": "contents", "path": "{config}/GPUCache"},
+        {"mode": "contents", "path": "{config}/DawnCache"},
+        {"mode": "contents", "path": "{config}/DawnWebGPUCache"},
+        {"mode": "contents", "path": "{config}/DawnGraphiteCache"},
+        {"mode": "contents", "path": "{config}/GrShaderCache"},
+        {"mode": "contents", "path": "{config}/ShaderCache"},
+        {"mode": "contents", "path": "{config}/Shared Dictionary"}
+      ]
+    },
+    {
+      "id": "{id}.cached_data",
+      "label": "Compiled code cache of old versions (CachedData)",
+      "description": "V8 bytecode caches per editor version; old version folders are never pruned. The newest one is kept.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [{"mode": "contents", "path": "{config}/CachedData", "keep_newest_n": 1}]
+    },
+    {
+      "id": "{id}.extension_caches",
+      "label": "Downloaded extension packages and caches",
+      "description": "CachedExtensionVSIXs, CachedExtensions and CachedProfilesData. Re-downloaded when needed.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{config}/CachedExtensionVSIXs"},
+        {"mode": "contents", "path": "{config}/CachedExtensions"},
+        {"mode": "contents", "path": "{config}/CachedProfilesData"}
+      ]
+    },
+    {
+      "id": "{id}.service_worker",
+      "label": "Webview service-worker caches",
+      "description": "Service Worker CacheStorage and ScriptCache used by webviews.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{config}/Service Worker/CacheStorage"},
+        {"mode": "contents", "path": "{config}/Service Worker/ScriptCache"}
+      ]
+    },
+    {
+      "id": "{id}.logs",
+      "label": "Session logs and crash dumps",
+      "description": "logs/ session folders and Crashpad reports.",
+      "rating": "safe",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{config}/logs"},
+        {"mode": "contents", "path": "{config}/Crashpad/completed"},
+        {"mode": "contents", "path": "{config}/Crashpad/pending"},
+        {"mode": "contents", "path": "{config}/Crashpad/reports"}
+      ]
+    },
+    {
+      "id": "{id}.workspace_stale",
+      "overlap": "workspace",
+      "label": "Stale workspace storage",
+      "description": "Per-workspace state and indexes for folders that no longer exist or were not opened for a long time (see Preferences). Opening such a folder again starts with fresh per-workspace extension state.",
+      "rating": "caution",
+      "requires_app_closed": true,
+      "split": true,
+      "targets": [{"mode": "contents", "path": "{config}/User/workspaceStorage",
+                   "selector": "stale_workspace", "selector_args": {"days": "$workspace_stale_days"}}]
+    },
+    {
+      "id": "{id}.workspace_all",
+      "overlap": "workspace",
+      "label": "All workspace storage",
+      "description": "Every workspace's state, indexes and extension data, including open projects. Resets per-workspace UI state, local history links and AI indexes.",
+      "rating": "advanced",
+      "requires_app_closed": true,
+      "targets": [{"mode": "contents", "path": "{config}/User/workspaceStorage", "selector": "workspace_all"}]
+    },
+    {
+      "id": "{id}.webview_state",
+      "label": "Webview and session storage",
+      "description": "blob_storage, Session Storage, Local Storage, IndexedDB and WebStorage. May sign you out of extensions and reset webview state.",
+      "rating": "caution",
+      "requires_app_closed": true,
+      "targets": [
+        {"mode": "contents", "path": "{config}/blob_storage"},
+        {"mode": "contents", "path": "{config}/Session Storage"},
+        {"mode": "contents", "path": "{config}/Local Storage"},
+        {"mode": "contents", "path": "{config}/IndexedDB"},
+        {"mode": "contents", "path": "{config}/WebStorage"}
+      ]
+    },
+    {
+      "id": "{id}.history",
+      "label": "Old local file history (Timeline)",
+      "description": "Local History entries older than the configured age (Preferences).",
+      "rating": "caution",
+      "requires_app_closed": true,
+      "targets": [{"mode": "contents", "path": "{config}/User/History", "min_age_days": "$history_days"}]
+    },
+    {
+      "id": "{id}.backups",
+      "label": "Hot-exit backups of unsaved editors",
+      "description": "Contents of editors that were never saved. Deleting them loses that text permanently.",
+      "rating": "advanced",
+      "requires_app_closed": true,
+      "extra_confirmation": "I understand unsaved editor contents in Backups will be lost",
+      "targets": [{"mode": "contents", "path": "{config}/Backups"}]
+    },
+    {
+      "id": "{id}.global_storage_info",
+      "label": "Global extension/AI state (globalStorage) — report only",
+      "description": "state.vscdb holds global extension and AI chat/agent history and can grow to tens of GB. It is never deleted by this app; clear history from inside the editor instead.",
+      "rating": "advanced",
+      "method": "report",
+      "probe_paths": ["{config}/User/globalStorage"]
+    },
+    {
+      "id": "{id}.global_storage_backup",
+      "label": "Backup copy of the global state DB (state.vscdb.backup)",
+      "description": "Only the .backup copy is removed; the live state.vscdb is never touched.",
+      "rating": "advanced",
+      "requires_app_closed": true,
+      "targets": [{"mode": "file", "path": "{config}/User/globalStorage/state.vscdb.backup"}]
+    },
+    {
+      "id": "{id}.old_extensions",
+      "label": "Superseded extension versions",
+      "description": "Older versions of installed extensions that were replaced by an update and are not referenced in extensions.json.",
+      "rating": "caution",
+      "requires_app_closed": true,
+      "targets": [{"mode": "contents", "path": "{ext}", "selector": "superseded_extensions"}]
+    },
+    {
+      "id": "{id}.server_bin",
+      "label": "Old remote server builds",
+      "description": "Server binaries for previous editor versions (bin/<commit>). The newest one is kept.",
+      "rating": "safe",
+      "targets": [
+        {"mode": "contents", "path": "{server}/bin", "keep_newest_n": 1},
+        {"mode": "contents", "path": "{server}/cli/servers", "keep_newest_n": 1}
+      ]
+    },
+    {
+      "id": "{id}.server_logs",
+      "label": "Remote server logs",
+      "description": "Logs written by the remote server.",
+      "rating": "safe",
+      "targets": [{"mode": "contents", "path": "{server}/data/logs"}]
+    },
+    {
+      "id": "{id}.server_extensions",
+      "label": "Superseded remote-server extension versions",
+      "description": "Older extension versions installed by the remote server.",
+      "rating": "caution",
+      "targets": [{"mode": "contents", "path": "{server}/extensions", "selector": "superseded_extensions"}]
+    }
+  ]
+}

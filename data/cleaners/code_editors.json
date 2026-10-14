@@ -1,0 +1,138 @@
+[
+  {
+    "id": "cursor",
+    "label": "Cursor",
+    "category": "Code Editors",
+    "template": "electron_editor",
+    "vars": {
+      "config": ["~/.config/Cursor"],
+      "ext": ["~/.cursor/extensions"],
+      "server": ["~/.cursor-server"]
+    },
+    "running": {
+      "process_names": ["cursor", "Cursor"],
+      "singleton_lock": "~/.config/Cursor/SingletonLock"
+    },
+    "options": [
+      {
+        "id": "cursor.sandbox_cache",
+        "label": "Agent sandbox cache (/tmp/cursor-sandbox-cache)",
+        "description": "Temporary cache used by Cursor's agent sandbox; can reach several GB. Only files owned by you are removed.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [{"mode": "contents", "path": "/tmp/cursor-sandbox-cache", "selector": "owned_by_uid"}]
+      },
+      {
+        "id": "cursor.appimages",
+        "label": "Old Cursor AppImages",
+        "description": "Older downloaded Cursor AppImage files. The newest one in each folder is kept. Moved to Trash.",
+        "rating": "caution",
+        "method": "trash",
+        "targets": [
+          {"mode": "glob", "path": "~/Applications/Cursor*.AppImage", "keep_newest_n": 1},
+          {"mode": "glob", "path": "{downloads}/Cursor*.AppImage", "keep_newest_n": 1}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "vscode",
+    "label": "Visual Studio Code",
+    "category": "Code Editors",
+    "template": "electron_editor",
+    "vars": {
+      "config": ["~/.config/Code", "~/snap/code/current/.config/Code",
+                 "~/.var/app/com.visualstudio.code/config/Code"],
+      "ext": ["~/.vscode/extensions", "~/.var/app/com.visualstudio.code/data/vscode/extensions"],
+      "server": ["~/.vscode-server"]
+    },
+    "running": {
+      "process_names": ["code"],
+      "snap_names": ["code"],
+      "flatpak_ids": ["com.visualstudio.code"],
+      "singleton_lock": "~/.config/Code/SingletonLock"
+    },
+    "options": [
+      {
+        "id": "vscode.snap_revisions",
+        "label": "Old snap revision data",
+        "description": "Data folders of VS Code snap revisions that are no longer current (~/snap/code/<rev>).",
+        "rating": "caution",
+        "split": true,
+        "targets": [{"mode": "dir", "path": "~/snap/code/*", "selector": "snap_old_revisions"}]
+      },
+      {
+        "id": "vscode.snap_cache",
+        "label": "Snap and Flatpak caches",
+        "description": "~/snap/code/common/.cache and the Flatpak app cache.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "~/snap/code/common/.cache"},
+          {"mode": "contents", "path": "~/.var/app/com.visualstudio.code/cache"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "vscode-insiders",
+    "label": "Visual Studio Code - Insiders",
+    "category": "Code Editors",
+    "template": "electron_editor",
+    "vars": {
+      "config": ["~/.config/Code - Insiders", "~/snap/code-insiders/current/.config/Code - Insiders"],
+      "ext": ["~/.vscode-insiders/extensions"],
+      "server": ["~/.vscode-server-insiders"]
+    },
+    "running": {
+      "process_names": ["code-insiders"],
+      "snap_names": ["code-insiders"],
+      "singleton_lock": "~/.config/Code - Insiders/SingletonLock"
+    },
+    "options": [
+      {
+        "id": "vscode-insiders.snap_revisions",
+        "label": "Old snap revision data",
+        "description": "Data folders of Insiders snap revisions that are no longer current.",
+        "rating": "caution",
+        "split": true,
+        "targets": [{"mode": "dir", "path": "~/snap/code-insiders/*", "selector": "snap_old_revisions"}]
+      },
+      {
+        "id": "vscode-insiders.snap_cache",
+        "label": "Snap cache",
+        "description": "~/snap/code-insiders/common/.cache.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [{"mode": "contents", "path": "~/snap/code-insiders/common/.cache"}]
+      }
+    ]
+  },
+  {
+    "id": "vscodium",
+    "label": "VSCodium",
+    "category": "Code Editors",
+    "template": "electron_editor",
+    "vars": {
+      "config": ["~/.config/VSCodium", "~/snap/codium/current/.config/VSCodium",
+                 "~/.var/app/com.vscodium.codium/config/VSCodium"],
+      "ext": ["~/.vscode-oss/extensions", "~/.var/app/com.vscodium.codium/data/codium/extensions"],
+      "server": []
+    },
+    "running": {
+      "process_names": ["codium"],
+      "snap_names": ["codium"],
+      "flatpak_ids": ["com.vscodium.codium"]
+    },
+    "options": [
+      {
+        "id": "vscodium.flatpak_cache",
+        "label": "Flatpak cache",
+        "description": "~/.var/app/com.vscodium.codium/cache.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [{"mode": "contents", "path": "~/.var/app/com.vscodium.codium/cache"}]
+      }
+    ]
+  }
+]

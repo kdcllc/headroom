@@ -1,0 +1,100 @@
+[
+  {
+    "id": "apt", "label": "APT packages", "category": "System",
+    "running": {"process_names": ["apt", "apt-get", "dpkg", "unattended-upgr", "packagekitd", "aptd"]},
+    "options": [
+      {"id": "apt.clean", "label": "Downloaded package files (.deb)",
+       "description": "/var/cache/apt/archives. Runs `apt-get clean`.",
+       "rating": "safe", "root": true, "method": "root_action", "requires_app_closed": true,
+       "root_action": {"id": "apt.clean"},
+       "probe_paths": ["/var/cache/apt/archives/*.deb", "/var/cache/apt/archives/partial/*"]},
+      {"id": "apt.autoclean", "label": "Package files that can no longer be downloaded",
+       "description": "Runs `apt-get autoclean` (a subset of the above).",
+       "rating": "safe", "root": true, "method": "root_action", "requires_app_closed": true,
+       "root_action": {"id": "apt.autoclean"}},
+      {"id": "apt.autoremove", "label": "Unused packages and old kernels",
+       "description": "Runs `apt-get autoremove --purge`. The list comes from `apt-get -s autoremove`; the helper refuses if the running kernel would be removed.",
+       "rating": "caution", "root": true, "method": "root_action", "requires_app_closed": true,
+       "root_action": {"id": "apt.autoremove"}, "probe": "apt_autoremove"},
+      {"id": "apt.lists", "label": "Package index files",
+       "description": "/var/lib/apt/lists (except lock and partial/); `apt-get update` is run afterwards to download fresh indexes.",
+       "rating": "advanced", "root": true, "method": "root_action", "requires_app_closed": true,
+       "root_action": {"id": "apt.lists"}, "probe_paths": ["/var/lib/apt/lists/*_*"]}
+    ]
+  },
+  {
+    "id": "journal", "label": "System journal", "category": "System",
+    "options": [
+      {"id": "journal.vacuum", "label": "Shrink the systemd journal",
+       "description": "Runs `journalctl --rotate`, then `--vacuum-size` and `--vacuum-time` with the limits from Preferences.",
+       "rating": "safe", "root": true, "method": "root_action",
+       "root_action": {"id": "journal.vacuum", "params": {"size_mb": "$journal_size_mb", "days": "$journal_days"}},
+       "probe": "journal"},
+      {"id": "journal.cap", "label": "Cap the journal size permanently",
+       "description": "Writes SystemMaxUse=<size> to /etc/systemd/journald.conf.d/50-headroom.conf and restarts journald. Remove that file to undo.",
+       "rating": "advanced", "root": true, "method": "root_action",
+       "root_action": {"id": "journal.cap", "params": {"max_mb": "$journal_size_mb"}},
+       "note": "setting"}
+    ]
+  },
+  {
+    "id": "syslogs", "label": "Log files", "category": "System",
+    "options": [
+      {"id": "logs.rotated", "label": "Rotated and compressed logs",
+       "description": "/var/log/**/*.gz, *.1, *.old (files only; the journal is handled separately).",
+       "rating": "safe", "root": true, "method": "root_action",
+       "root_action": {"id": "logs.rotated"},
+       "probe_paths": ["/var/log/**/*.gz", "/var/log/**/*.[0-9]", "/var/log/**/*.old"]},
+      {"id": "logs.truncate_large", "label": "Empty runaway active logs (> 500 MB)",
+       "description": "Live log files above 500 MB are truncated to zero (never deleted). Their history is lost.",
+       "rating": "advanced", "root": true, "method": "root_action",
+       "root_action": {"id": "logs.truncate_large"}}
+    ]
+  },
+  {
+    "id": "crash", "label": "Crash reports", "category": "System",
+    "options": [
+      {"id": "crash.var", "label": "Apport crash reports",
+       "description": "/var/crash/*.crash, *.upload, *.uploaded.",
+       "rating": "safe", "root": true, "method": "root_action", "root_action": {"id": "crash.var"},
+       "probe_paths": ["/var/crash/*.crash", "/var/crash/*.upload", "/var/crash/*.uploaded"]},
+      {"id": "crash.coredump", "label": "System core dumps",
+       "description": "/var/lib/apport/coredump and /var/lib/systemd/coredump.",
+       "rating": "safe", "root": true, "method": "root_action", "root_action": {"id": "crash.coredump"},
+       "probe_paths": ["/var/lib/apport/coredump/*", "/var/lib/systemd/coredump/*"]}
+    ]
+  },
+  {
+    "id": "temp", "label": "Temporary files", "category": "System",
+    "options": [
+      {"id": "tmp.var", "label": "Old files in /var/tmp",
+       "description": "Files not modified or accessed for the configured number of days (default 30) and not open by any process. systemd-private-* and sockets are skipped.",
+       "rating": "caution", "root": true, "method": "root_action",
+       "root_action": {"id": "tmp.var", "params": {"days": "$var_tmp_days"}}},
+      {"id": "tmp.tmp", "label": "Old files in /tmp",
+       "description": "Files older than the configured number of days (default 10), not modified in the last 24 h and not open. X11/ICE sockets and systemd-private-* are skipped.",
+       "rating": "caution", "root": true, "method": "root_action",
+       "root_action": {"id": "tmp.tmp", "params": {"days": "$tmp_days"}}}
+    ]
+  },
+  {
+    "id": "system-caches", "label": "System caches", "category": "System",
+    "options": [
+      {"id": "cache.man", "label": "Manual page index", "description": "/var/cache/man; rebuilt by man-db.",
+       "rating": "safe", "root": true, "method": "root_action", "root_action": {"id": "cache.man"},
+       "probe_paths": ["/var/cache/man"]},
+      {"id": "cache.fontconfig", "label": "System font cache",
+       "description": "/var/cache/fontconfig, then `fc-cache -s` rebuilds it.",
+       "rating": "safe", "root": true, "method": "root_action", "root_action": {"id": "cache.fontconfig"},
+       "probe_paths": ["/var/cache/fontconfig"]}
+    ]
+  },
+  {
+    "id": "timeshift", "label": "Timeshift", "category": "System",
+    "options": [
+      {"id": "timeshift.info", "label": "Timeshift snapshots — report only",
+       "description": "Snapshots are managed only from Timeshift itself; this app never deletes them.",
+       "rating": "advanced", "method": "report", "probe_paths": ["/timeshift/snapshots"]}
+    ]
+  }
+]

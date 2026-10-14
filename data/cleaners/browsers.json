@@ -1,0 +1,162 @@
+[
+  {
+    "id": "firefox",
+    "label": "Firefox",
+    "category": "Browsers",
+    "vars": {
+      "cache": ["~/snap/firefox/common/.cache/mozilla/firefox", "~/.cache/mozilla/firefox",
+                "~/.var/app/org.mozilla.firefox/cache/mozilla/firefox"]
+    },
+    "running": {"process_names": ["firefox", "firefox-bin"], "snap_names": ["firefox"],
+                "flatpak_ids": ["org.mozilla.firefox"]},
+    "options": [
+      {
+        "id": "firefox.cache",
+        "label": "Web cache, startup cache and thumbnails",
+        "description": "cache2, startupCache and thumbnails of every profile. Profiles, history, cookies and passwords (~/.mozilla, ~/snap/firefox/common/.mozilla) are never touched.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "{cache}/*/cache2"},
+          {"mode": "contents", "path": "{cache}/*/startupCache"},
+          {"mode": "contents", "path": "{cache}/*/thumbnails"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "librewolf",
+    "label": "LibreWolf",
+    "category": "Browsers",
+    "running": {"process_names": ["librewolf"], "flatpak_ids": ["io.gitlab.librewolf-community"]},
+    "options": [
+      {
+        "id": "librewolf.cache",
+        "label": "Web cache and startup cache",
+        "description": "cache2 and startupCache of every profile.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "~/.cache/librewolf/*/cache2"},
+          {"mode": "contents", "path": "~/.cache/librewolf/*/startupCache"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "chrome",
+    "label": "Google Chrome",
+    "category": "Browsers",
+    "vars": {"cache": ["~/.cache/google-chrome"], "config": ["~/.config/google-chrome"]},
+    "running": {"process_names": ["chrome", "google-chrome"],
+                "singleton_lock": "~/.config/google-chrome/SingletonLock"},
+    "options": [
+      {
+        "id": "chrome.cache",
+        "label": "HTTP, code, GPU and shader caches",
+        "description": "Per-profile Cache, Code Cache, GPUCache and service-worker caches, plus shared shader caches. History, cookies, passwords and profiles are never touched.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "{cache}/*/Cache"},
+          {"mode": "contents", "path": "{cache}/*/Code Cache"},
+          {"mode": "contents", "path": "{config}/*/GPUCache"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/CacheStorage"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/ScriptCache"},
+          {"mode": "contents", "path": "{config}/ShaderCache"},
+          {"mode": "contents", "path": "{config}/GrShaderCache"},
+          {"mode": "contents", "path": "{config}/GraphiteDawnCache"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "chromium",
+    "label": "Chromium",
+    "category": "Browsers",
+    "vars": {
+      "cache": ["~/snap/chromium/common/.cache/chromium", "~/.cache/chromium",
+                "~/.var/app/org.chromium.Chromium/cache/chromium"],
+      "config": ["~/snap/chromium/common/chromium", "~/.config/chromium",
+                 "~/.var/app/org.chromium.Chromium/config/chromium"]
+    },
+    "running": {"process_names": ["chromium", "chromium-browser", "chrome"], "snap_names": ["chromium"],
+                "flatpak_ids": ["org.chromium.Chromium"]},
+    "options": [
+      {
+        "id": "chromium.cache",
+        "label": "HTTP, code, GPU and shader caches",
+        "description": "Per-profile Cache, Code Cache, GPUCache and service-worker caches.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "{cache}/*/Cache"},
+          {"mode": "contents", "path": "{cache}/*/Code Cache"},
+          {"mode": "contents", "path": "{config}/*/GPUCache"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/CacheStorage"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/ScriptCache"},
+          {"mode": "contents", "path": "{config}/ShaderCache"},
+          {"mode": "contents", "path": "{config}/GrShaderCache"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "brave",
+    "label": "Brave",
+    "category": "Browsers",
+    "vars": {
+      "cache": ["~/.cache/BraveSoftware/Brave-Browser",
+                "~/snap/brave/common/.cache/BraveSoftware/Brave-Browser",
+                "~/.var/app/com.brave.Browser/cache/BraveSoftware/Brave-Browser"],
+      "config": ["~/.config/BraveSoftware/Brave-Browser",
+                 "~/snap/brave/current/.config/BraveSoftware/Brave-Browser",
+                 "~/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"]
+    },
+    "running": {"process_names": ["brave", "brave-browser"], "snap_names": ["brave"],
+                "flatpak_ids": ["com.brave.Browser"]},
+    "options": [
+      {
+        "id": "brave.cache",
+        "label": "HTTP, code, GPU and shader caches",
+        "description": "Per-profile Cache, Code Cache, GPUCache and service-worker caches.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "{cache}/*/Cache"},
+          {"mode": "contents", "path": "{cache}/*/Code Cache"},
+          {"mode": "contents", "path": "{config}/*/GPUCache"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/CacheStorage"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/ScriptCache"},
+          {"mode": "contents", "path": "{config}/ShaderCache"},
+          {"mode": "contents", "path": "{config}/GrShaderCache"}
+        ]
+      }
+    ]
+  },
+  {
+    "id": "edge",
+    "label": "Microsoft Edge",
+    "category": "Browsers",
+    "vars": {"cache": ["~/.cache/microsoft-edge"], "config": ["~/.config/microsoft-edge"]},
+    "running": {"process_names": ["msedge", "microsoft-edge"],
+                "singleton_lock": "~/.config/microsoft-edge/SingletonLock"},
+    "options": [
+      {
+        "id": "edge.cache",
+        "label": "HTTP, code, GPU and shader caches",
+        "description": "Per-profile Cache, Code Cache, GPUCache and service-worker caches.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "{cache}/*/Cache"},
+          {"mode": "contents", "path": "{cache}/*/Code Cache"},
+          {"mode": "contents", "path": "{config}/*/GPUCache"},
+          {"mode": "contents", "path": "{config}/*/Service Worker/CacheStorage"},
+          {"mode": "contents", "path": "{config}/ShaderCache"},
+          {"mode": "contents", "path": "{config}/GrShaderCache"}
+        ]
+      }
+    ]
+  }
+]

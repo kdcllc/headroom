@@ -1,0 +1,90 @@
+[
+  {
+    "id": "slack", "label": "Slack", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/Slack", "~/snap/slack/current/.config/Slack",
+                      "~/.var/app/com.slack.Slack/config/Slack"]},
+    "running": {"process_names": ["slack"], "snap_names": ["slack"], "flatpak_ids": ["com.slack.Slack"]}
+  },
+  {
+    "id": "discord", "label": "Discord", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/discord", "~/.config/discordcanary", "~/.config/discordptb",
+                      "~/snap/discord/current/.config/discord",
+                      "~/.var/app/com.discordapp.Discord/config/discord"]},
+    "running": {"process_names": ["Discord", "discord", "DiscordCanary", "DiscordPTB"],
+                "snap_names": ["discord"], "flatpak_ids": ["com.discordapp.Discord"]}
+  },
+  {
+    "id": "teams", "label": "Microsoft Teams / teams-for-linux", "category": "Electron Apps",
+    "template": "chromium_app",
+    "vars": {"root": ["~/.config/Microsoft/Microsoft Teams", "~/.config/teams-for-linux",
+                      "~/snap/teams-for-linux/current/.config/teams-for-linux",
+                      "~/.var/app/com.github.IsmaelMartinez.teams_for_linux/config/teams-for-linux"]},
+    "running": {"process_names": ["teams", "teams-for-linux"], "snap_names": ["teams-for-linux"],
+                "flatpak_ids": ["com.github.IsmaelMartinez.teams_for_linux"]}
+  },
+  {
+    "id": "obsidian", "label": "Obsidian", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/obsidian", "~/snap/obsidian/current/.config/obsidian",
+                      "~/.var/app/md.obsidian.Obsidian/config/obsidian"]},
+    "running": {"process_names": ["obsidian"], "snap_names": ["obsidian"],
+                "flatpak_ids": ["md.obsidian.Obsidian"]}
+  },
+  {
+    "id": "postman", "label": "Postman", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/Postman", "~/snap/postman/current/.config/Postman",
+                      "~/.var/app/com.getpostman.Postman/config/Postman"]},
+    "running": {"process_names": ["Postman", "postman"], "snap_names": ["postman"],
+                "flatpak_ids": ["com.getpostman.Postman"]}
+  },
+  {
+    "id": "signal", "label": "Signal", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/Signal", "~/snap/signal-desktop/current/.config/Signal",
+                      "~/.var/app/org.signal.Signal/config/Signal"]},
+    "running": {"process_names": ["signal-desktop", "Signal"], "snap_names": ["signal-desktop"],
+                "flatpak_ids": ["org.signal.Signal"]}
+  },
+  {
+    "id": "element", "label": "Element", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/Element", "~/snap/element-desktop/current/.config/Element",
+                      "~/.var/app/im.riot.Riot/config/Element"]},
+    "running": {"process_names": ["element-desktop", "Element"], "snap_names": ["element-desktop"],
+                "flatpak_ids": ["im.riot.Riot"]}
+  },
+  {
+    "id": "mattermost", "label": "Mattermost", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/Mattermost", "~/snap/mattermost-desktop/current/.config/Mattermost",
+                      "~/.var/app/com.mattermost.Desktop/config/Mattermost"]},
+    "running": {"process_names": ["mattermost-desktop", "mattermost"],
+                "snap_names": ["mattermost-desktop"], "flatpak_ids": ["com.mattermost.Desktop"]}
+  },
+  {
+    "id": "notion", "label": "Notion", "category": "Electron Apps", "template": "chromium_app",
+    "vars": {"root": ["~/.config/Notion", "~/.config/notion-app",
+                      "~/snap/notion-snap-reborn/current/.config/notion-snap-reborn"]},
+    "running": {"process_names": ["notion", "notion-app"], "snap_names": ["notion-snap-reborn"]}
+  },
+  {
+    "id": "azuredatastudio", "label": "Azure Data Studio", "category": "Electron Apps",
+    "template": "chromium_app",
+    "vars": {"root": ["~/.config/azuredatastudio"]},
+    "running": {"process_names": ["azuredatastudio"]}
+  },
+  {
+    "id": "spotify", "label": "Spotify", "category": "Electron Apps",
+    "running": {"process_names": ["spotify"], "snap_names": ["spotify"], "flatpak_ids": ["com.spotify.Client"]},
+    "options": [
+      {
+        "id": "spotify.cache",
+        "label": "Streaming cache",
+        "description": "Cached audio (Storage/, Data/) can be several GB. Downloaded offline playlists will download again.",
+        "rating": "safe",
+        "requires_app_closed": true,
+        "targets": [
+          {"mode": "contents", "path": "~/.cache/spotify"},
+          {"mode": "contents", "path": "~/snap/spotify/common/.cache/spotify"},
+          {"mode": "contents", "path": "~/.var/app/com.spotify.Client/cache/spotify"}
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,5 @@
+org.gnome.Platform	42	1.0 GB
+org.gnome.Platform.Locale	42	18.2 kB
+org.freedesktop.Platform	22.08	553.7 MB
+org.freedesktop.Platform.GL.default	22.08	140.1 MB
+org.kde.Platform	5.15-22.08	1.2 GB

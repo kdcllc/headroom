@@ -1,0 +1,27 @@
+# Tooling config only. The app is installed by the .deb (debian/install) or
+# `make install-user`; it runs on the system Python with apt's PyGObject.
+[project]
+name = "headroom"
+version = "0.1.0"
+description = "Safe disk-space cleaner for Ubuntu 22.04 (GTK4/libadwaita)"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "kdcllc", email = "info@kingdavidconsulting.com" }]
+dependencies = []  # stdlib + PyGObject from apt (python3-gi) only
+
+[dependency-groups]
+dev = ["pytest>=7", "ruff>=0.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B017"]

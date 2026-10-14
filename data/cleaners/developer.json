@@ -1,0 +1,270 @@
+[
+  {
+    "id": "pip", "label": "pip", "category": "Developer Caches",
+    "options": [{"id": "pip.cache", "label": "pip download/wheel cache",
+      "description": "~/.cache/pip. Uses `pip cache purge` when pip is installed.",
+      "rating": "safe", "command": "pip.purge",
+      "targets": [{"mode": "contents", "path": "~/.cache/pip"}]}]
+  },
+  {
+    "id": "uv", "label": "uv", "category": "Developer Caches",
+    "running": {"process_names": ["uv"]},
+    "options": [{"id": "uv.cache", "label": "uv cache",
+      "description": "~/.cache/uv. Uses `uv cache clean` when uv is installed.",
+      "rating": "safe", "command": "uv.clean",
+      "targets": [{"mode": "contents", "path": "~/.cache/uv"}]}]
+  },
+  {
+    "id": "poetry", "label": "Poetry", "category": "Developer Caches",
+    "options": [
+      {"id": "poetry.cache", "label": "Package cache and artifacts",
+       "description": "~/.cache/pypoetry/cache and artifacts. Virtualenvs are not touched.",
+       "rating": "safe",
+       "targets": [{"mode": "contents", "path": "~/.cache/pypoetry/cache"},
+                   {"mode": "contents", "path": "~/.cache/pypoetry/artifacts"}]},
+      {"id": "poetry.virtualenvs_info", "label": "Poetry virtualenvs — report only",
+       "description": "~/.cache/pypoetry/virtualenvs holds project environments. Remove them with `poetry env remove` inside each project.",
+       "rating": "advanced", "method": "report",
+       "probe_paths": ["~/.cache/pypoetry/virtualenvs"]}
+    ]
+  },
+  {
+    "id": "npm", "label": "npm", "category": "Developer Caches",
+    "options": [
+      {"id": "npm.cache", "label": "npm package cache (_cacache)",
+       "description": "Uses `npm cache clean --force` when npm is installed.",
+       "rating": "safe", "command": "npm.clean",
+       "targets": [{"mode": "contents", "path": "~/.npm/_cacache"}]},
+      {"id": "npm.logs", "label": "npm logs and npx cache",
+       "description": "~/.npm/_logs and ~/.npm/_npx.",
+       "rating": "safe",
+       "targets": [{"mode": "contents", "path": "~/.npm/_logs"},
+                   {"mode": "contents", "path": "~/.npm/_npx"}]}
+    ]
+  },
+  {
+    "id": "yarn", "label": "Yarn", "category": "Developer Caches",
+    "options": [
+      {"id": "yarn.classic", "label": "Yarn classic cache",
+       "description": "~/.cache/yarn. Uses `yarn cache clean` when yarn is installed.",
+       "rating": "safe", "command": "yarn.clean",
+       "targets": [{"mode": "contents", "path": "~/.cache/yarn"}]},
+      {"id": "yarn.berry", "label": "Yarn Berry global cache",
+       "description": "~/.yarn/berry/cache.",
+       "rating": "safe",
+       "targets": [{"mode": "contents", "path": "~/.yarn/berry/cache"}]}
+    ]
+  },
+  {
+    "id": "pnpm", "label": "pnpm", "category": "Developer Caches",
+    "options": [{"id": "pnpm.store", "label": "pnpm content store",
+      "description": "~/.local/share/pnpm/store. Uses `pnpm store prune` (removes only unreferenced packages) when pnpm is installed; the size shown is the whole store.",
+      "rating": "safe", "command": "pnpm.prune",
+      "targets": [{"mode": "contents", "path": "~/.local/share/pnpm/store"}]}]
+  },
+  {
+    "id": "node-tools", "label": "node-gyp / nvm", "category": "Developer Caches",
+    "options": [{"id": "node-tools.cache", "label": "node-gyp headers and nvm download cache",
+      "description": "~/.cache/node-gyp and ~/.nvm/.cache.",
+      "rating": "safe",
+      "targets": [{"mode": "contents", "path": "~/.cache/node-gyp"},
+                  {"mode": "contents", "path": "~/.nvm/.cache"}]}]
+  },
+  {
+    "id": "go", "label": "Go", "category": "Developer Caches",
+    "options": [
+      {"id": "go.build", "label": "Go build cache",
+       "description": "GOCACHE (~/.cache/go-build). Uses `go clean -cache` when go is installed.",
+       "rating": "safe", "command": "go.cache",
+       "targets": [{"mode": "contents", "path": "{gocache}"}]},
+      {"id": "go.modcache", "label": "Go module cache",
+       "description": "GOMODCACHE (~/go/pkg/mod). Files are read-only, so only `go clean -modcache` is used. Modules re-download on next build.",
+       "rating": "caution", "command": "go.modcache", "command_only": true,
+       "targets": [{"mode": "contents", "path": "{gomodcache}"}]}
+    ]
+  },
+  {
+    "id": "cargo", "label": "Cargo (Rust)", "category": "Developer Caches",
+    "running": {"process_names": ["cargo", "rust-analyzer"]},
+    "options": [
+      {"id": "cargo.registry", "label": "Registry cache and sources",
+       "description": "~/.cargo/registry/cache and registry/src. Re-downloaded on next build.",
+       "rating": "safe",
+       "targets": [{"mode": "contents", "path": "~/.cargo/registry/cache"},
+                   {"mode": "contents", "path": "~/.cargo/registry/src"}]},
+      {"id": "cargo.git", "label": "Git dependency checkouts",
+       "description": "~/.cargo/git/checkouts and git/db. Git dependencies are cloned again.",
+       "rating": "caution",
+       "targets": [{"mode": "contents", "path": "~/.cargo/git/checkouts"},
+                   {"mode": "contents", "path": "~/.cargo/git/db"}]}
+    ]
+  },
+  {
+    "id": "gradle", "label": "Gradle", "category": "Developer Caches",
+    "running": {"process_names": ["gradle"]},
+    "options": [
+      {"id": "gradle.caches", "label": "Gradle caches",
+       "description": "~/.gradle/caches. Runs `gradle --stop` first when gradle is installed. Dependencies re-download on next build.",
+       "rating": "caution", "command": "gradle.stop",
+       "targets": [{"mode": "contents", "path": "~/.gradle/caches"}]},
+      {"id": "gradle.daemon_logs", "label": "Gradle daemon logs",
+       "description": "~/.gradle/daemon/<version>/*.log.",
+       "rating": "safe",
+       "targets": [{"mode": "glob", "path": "~/.gradle/daemon/*/*.log"}]},
+      {"id": "gradle.wrapper", "label": "Old Gradle wrapper distributions",
+       "description": "~/.gradle/wrapper/dists; the two most recently used are kept.",
+       "rating": "caution", "split": true,
+       "targets": [{"mode": "contents", "path": "~/.gradle/wrapper/dists", "keep_newest_n": 2}]}
+    ]
+  },
+  {
+    "id": "maven", "label": "Maven", "category": "Developer Caches",
+    "options": [{"id": "maven.repository", "label": "Local repository",
+      "description": "~/.m2/repository, one row per top-level group. Locally installed SNAPSHOT artifacts are lost.",
+      "rating": "caution", "split": true,
+      "targets": [{"mode": "contents", "path": "~/.m2/repository"}]}]
+  },
+  {
+    "id": "nuget", "label": "NuGet / .NET", "category": "Developer Caches",
+    "running": {"process_names": ["dotnet"]},
+    "options": [
+      {"id": "nuget.http", "label": "NuGet HTTP cache",
+       "description": "~/.local/share/NuGet/http-cache and v3-cache.",
+       "rating": "safe",
+       "targets": [{"mode": "contents", "path": "~/.local/share/NuGet/http-cache"},
+                   {"mode": "contents", "path": "~/.local/share/NuGet/v3-cache"}]},
+      {"id": "nuget.packages", "label": "Global packages folder",
+       "description": "~/.nuget/packages. Uses `dotnet nuget locals all --clear` (clears all NuGet caches) when dotnet is installed. Packages re-download on next restore.",
+       "rating": "caution", "command": "dotnet.nuget",
+       "targets": [{"mode": "contents", "path": "~/.nuget/packages"}]}
+    ]
+  },
+  {
+    "id": "conda", "label": "conda / mamba", "category": "Developer Caches",
+    "options": [{"id": "conda.pkgs", "label": "Package cache (pkgs)",
+      "description": "Uses `conda clean --all -y` when conda is installed (never --force-pkgs-dirs).",
+      "rating": "safe", "command": "conda.clean",
+      "targets": [{"mode": "contents", "path": "~/anaconda3/pkgs"},
+                  {"mode": "contents", "path": "~/miniconda3/pkgs"},
+                  {"mode": "contents", "path": "~/miniforge3/pkgs"},
+                  {"mode": "contents", "path": "~/mambaforge/pkgs"},
+                  {"mode": "contents", "path": "~/.conda/pkgs"}]}]
+  },
+  {
+    "id": "huggingface", "label": "Hugging Face", "category": "Developer Caches",
+    "options": [
+      {"id": "huggingface.models", "label": "Downloaded model / dataset",
+       "description": "One row per cached repository in the hub cache (respects HF_HOME / HF_HUB_CACHE). Re-downloads can be many GB.",
+       "rating": "caution", "split": true,
+       "targets": [{"mode": "contents", "path": "{hf_hub}", "selector": "hf_models"}]},
+      {"id": "huggingface.xet", "label": "Xet chunk cache",
+       "description": "{HF_HOME}/xet.",
+       "rating": "caution",
+       "targets": [{"mode": "contents", "path": "{hf_home}/xet"}]}
+    ]
+  },
+  {
+    "id": "torch", "label": "PyTorch", "category": "Developer Caches",
+    "options": [
+      {"id": "torch.kernels", "label": "Compiled kernels", "description": "~/.cache/torch/kernels.",
+       "rating": "safe", "targets": [{"mode": "contents", "path": "~/.cache/torch/kernels"}]},
+      {"id": "torch.hub", "label": "Torch Hub downloads",
+       "description": "~/.cache/torch/hub; models re-download.", "rating": "caution",
+       "targets": [{"mode": "contents", "path": "~/.cache/torch/hub"}]}
+    ]
+  },
+  {
+    "id": "jetbrains", "label": "JetBrains IDEs", "category": "Developer Caches",
+    "running": {"process_names": ["idea", "pycharm", "webstorm", "goland", "clion", "rider", "rustrover", "java"]},
+    "options": [
+      {"id": "jetbrains.old_caches", "label": "Caches of older IDE versions",
+       "description": "~/.cache/JetBrains/<Product><version> for versions older than the newest per product.",
+       "rating": "safe", "split": true,
+       "targets": [{"mode": "contents", "path": "~/.cache/JetBrains", "selector": "versions",
+                    "selector_args": {"keep": "old"}}]},
+      {"id": "jetbrains.current_caches", "label": "Caches of the current IDE version",
+       "description": "Indexes are rebuilt on next start (can take a while).",
+       "rating": "caution", "requires_app_closed": true, "split": true,
+       "targets": [{"mode": "contents", "path": "~/.cache/JetBrains", "selector": "versions",
+                    "selector_args": {"keep": "current"}}]},
+      {"id": "jetbrains.old_data", "label": "Settings and plugins of older IDE versions",
+       "description": "~/.local/share/JetBrains and ~/.config/JetBrains folders for versions older than the newest per product.",
+       "rating": "caution", "split": true,
+       "targets": [{"mode": "contents", "path": "~/.local/share/JetBrains", "selector": "versions",
+                    "selector_args": {"keep": "old"}},
+                   {"mode": "contents", "path": "~/.config/JetBrains", "selector": "versions",
+                    "selector_args": {"keep": "old"}}]}
+    ]
+  },
+  {
+    "id": "composer", "label": "Composer (PHP)", "category": "Developer Caches",
+    "options": [{"id": "composer.cache", "label": "Composer cache",
+      "description": "~/.cache/composer. Uses `composer clear-cache` when installed.",
+      "rating": "safe", "command": "composer.clear",
+      "targets": [{"mode": "contents", "path": "~/.cache/composer"}]}]
+  },
+  {
+    "id": "ruby", "label": "RubyGems / Bundler", "category": "Developer Caches",
+    "options": [
+      {"id": "ruby.gem_cleanup", "label": "Old gem versions",
+       "description": "Runs `gem cleanup` (removes superseded versions of installed gems). Only available when gem is installed.",
+       "rating": "caution", "command": "gem.cleanup", "command_only": true,
+       "targets": [{"mode": "contents", "path": "~/.gem"},
+                   {"mode": "contents", "path": "~/.local/share/gem"}]},
+      {"id": "ruby.bundle_cache", "label": "Bundler caches",
+       "description": "~/.bundle/cache and ~/.cache/bundle.", "rating": "caution",
+       "targets": [{"mode": "contents", "path": "~/.bundle/cache"},
+                   {"mode": "contents", "path": "~/.cache/bundle"}]}
+    ]
+  },
+  {
+    "id": "homebrew", "label": "Homebrew on Linux", "category": "Developer Caches",
+    "options": [{"id": "homebrew.cache", "label": "Homebrew download cache",
+      "description": "~/.cache/Homebrew. Uses `brew cleanup --prune=all` when brew is installed.",
+      "rating": "safe", "command": "brew.cleanup",
+      "targets": [{"mode": "contents", "path": "~/.cache/Homebrew"}]}]
+  },
+  {
+    "id": "electron-dev", "label": "Electron / electron-builder", "category": "Developer Caches",
+    "options": [{"id": "electron-dev.cache", "label": "Electron download caches",
+      "description": "~/.cache/electron and ~/.cache/electron-builder.", "rating": "safe",
+      "targets": [{"mode": "contents", "path": "~/.cache/electron"},
+                  {"mode": "contents", "path": "~/.cache/electron-builder"}]}]
+  },
+  {
+    "id": "browser-testing", "label": "Playwright / Puppeteer / Cypress", "category": "Developer Caches",
+    "options": [{"id": "browser-testing.browsers", "label": "Downloaded test browsers",
+      "description": "~/.cache/ms-playwright, ~/.cache/puppeteer and ~/.cache/Cypress. Re-downloaded by the next install.",
+      "rating": "caution", "split": true,
+      "targets": [{"mode": "contents", "path": "~/.cache/ms-playwright"},
+                  {"mode": "contents", "path": "~/.cache/puppeteer"},
+                  {"mode": "contents", "path": "~/.cache/Cypress"}]}]
+  },
+  {
+    "id": "android", "label": "Android SDK", "category": "Developer Caches",
+    "running": {"process_names": ["studio", "qemu-system-x86_64", "emulator"]},
+    "options": [
+      {"id": "android.cache", "label": "Android tools cache", "description": "~/.android/cache.",
+       "rating": "safe", "targets": [{"mode": "contents", "path": "~/.android/cache"}]},
+      {"id": "android.avd", "label": "Virtual device",
+       "description": "An emulator image with its installed apps and data. Lost permanently.",
+       "rating": "advanced", "split": true, "requires_app_closed": true,
+       "targets": [{"mode": "glob", "path": "~/.android/avd/*.avd"}]},
+      {"id": "android.system_images", "label": "Emulator system images",
+       "description": "~/Android/Sdk/system-images/<api>. Re-download with the SDK manager.",
+       "rating": "advanced", "split": true,
+       "targets": [{"mode": "dir", "path": "~/Android/Sdk/system-images/*"}]}
+    ]
+  },
+  {
+    "id": "unity", "label": "Unity", "category": "Developer Caches",
+    "options": [
+      {"id": "unity.cache", "label": "Unity cache", "description": "~/.cache/unity3d.",
+       "rating": "safe", "targets": [{"mode": "contents", "path": "~/.cache/unity3d"}]},
+      {"id": "unity.asset_store", "label": "Asset Store downloads",
+       "description": "~/.local/share/unity3d/Asset Store-5.x; packages re-download.",
+       "rating": "caution",
+       "targets": [{"mode": "contents", "path": "~/.local/share/unity3d/Asset Store-5.x"}]}
+    ]
+  }
+]

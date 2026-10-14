@@ -1,0 +1,17 @@
+NOTE: This is only a simulation!
+      apt-get needs root privileges for real execution.
+      Keep also in mind that locking is deactivated,
+      so don't depend on the relevance to the real current situation!
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be REMOVED:
+  linux-headers-5.15.0-88* linux-headers-5.15.0-88-generic* linux-image-5.15.0-88-generic*
+  linux-modules-5.15.0-88-generic* linux-modules-extra-5.15.0-88-generic* libfoo1:amd64*
+0 upgraded, 0 newly installed, 6 to remove and 0 not upgraded.
+Purg linux-headers-5.15.0-88-generic [5.15.0-88.98]
+Purg linux-headers-5.15.0-88 [5.15.0-88.98]
+Purg linux-modules-extra-5.15.0-88-generic [5.15.0-88.98]
+Purg linux-image-5.15.0-88-generic [5.15.0-88.98]
+Purg linux-modules-5.15.0-88-generic [5.15.0-88.98]
+Remv libfoo1:amd64 [1.2-3]
