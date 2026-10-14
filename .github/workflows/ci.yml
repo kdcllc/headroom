@@ -43,8 +43,12 @@ jobs:
           env GDK_BACKEND=x11 GTK_A11Y=none NO_AT_BRIDGE=1
           /usr/bin/python3 -m pytest tests/ui -v -o faulthandler_timeout=60
       - name: Build .deb
+        timeout-minutes: 3 # build ~2s + lintian ~10s
+        # debian/rules directly (Rules-Requires-Root: no), not dpkg-buildpackage: its dpkg-genbuildinfo
+        # step walks the runner's huge installed-package set (~2.5 min) for a .buildinfo CI discards
         run: |
-          dpkg-buildpackage -us -uc -b
+          debian/rules clean
+          debian/rules binary
           mkdir -p dist && mv ../headroom_*_all.deb dist/
           lintian --fail-on error --info dist/*.deb  # warnings are shown, errors fail the build
       - uses: actions/upload-artifact@v4
