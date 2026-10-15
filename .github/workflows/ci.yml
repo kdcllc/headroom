@@ -46,6 +46,8 @@ jobs:
         timeout-minutes: 3 # build ~2s + lintian ~10s
         # debian/rules directly (Rules-Requires-Root: no), not dpkg-buildpackage: its dpkg-genbuildinfo
         # step walks the runner's huge installed-package set (~2.5 min) for a .buildinfo CI discards
+        env:
+          DEB_RULES_REQUIRES_ROOT: "no" # what dpkg-buildpackage derives from debian/control; dh_testroot checks it
         run: |
           debian/rules clean
           debian/rules binary
