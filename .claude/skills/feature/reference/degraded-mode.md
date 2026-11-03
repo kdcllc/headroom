@@ -180,4 +180,4 @@ mid-goal chat approval.
 | Self-evaluated gate passed | User told (interactive) or PR draft + final report (unattended) |
 
 Append-only rules in the feature skill's orchestration log section still apply; degraded
-entries are normal spawn/outcome/note lines, not placeholders.
+entries are normal spawn/outcome/note/keys lines, not placeholders.

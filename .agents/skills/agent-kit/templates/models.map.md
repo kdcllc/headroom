@@ -108,7 +108,7 @@ Rules (adapted from bradygaster/squad's model selector):
 
 <!-- BOOTSTRAP[loop-fallback]: fill with CURRENT model IDs for the harness(es) targeted. Resolves {{LOOP_MODEL_CHAIN}}
      (one comma-separated string, first entry = preferred, no spaces around the
-     commas — neither driver twin trims chain entries) wherever that token appears
+     commas — the loop driver does not trim chain entries) wherever that token appears
      in the emitted loop templates.
 | Chain (first available wins) | Resolves |
 |-------------------------------|----------|
@@ -145,7 +145,7 @@ fix cycle 2 and continuation-ladder rung 4 should escalate to a human sooner.
 
 ### After cycle 3 — continuation ladder pins
 
-When fix cycles 1–3 exhaust, the continuation ladder (see ORCHESTRATION.md) applies:
+When fix cycles are exhausted (cycle 3, or earlier on early ladder entry), the continuation ladder (see ORCHESTRATION.md) applies:
 
 <!-- BOOTSTRAP[frontier-alt-family]: resolve {{MODEL_FRONTIER_ALT_FAMILY}} to a frontier-tier model from a
      different provider family than {{MODEL_FRONTIER}} — same pattern as

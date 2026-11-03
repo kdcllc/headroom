@@ -3,7 +3,7 @@ name: agent-kit
 description: "Install the orchestrator/worker/evaluator multi-agent system into the current project, compiled for its AI coding harness(es) — Claude Code, Cursor, GitHub Copilot (VS Code), and/or OpenAI Codex. Generates the seven subagents (evaluator, qa-evaluator, implementer, test-writer, evidence-collector, terminal, diagnostician) with tiered model pins — evidence-collector gathers optional-gate QA evidence — terminal is fast-tier (light when an install omits `fast`): it runs any Bash or PowerShell command and returns only the result the caller asked for — plus the orchestrator skills (feature, research, memory-capture), the criteria skills, an optional autonomous feature loop, and a project-specific ORCHESTRATION.md. On empty or near-empty (greenfield) directories it first asks whether to scaffold a project tree and creates nothing until the user confirms. After inspect, suggests skills.sh skills from inspection signals. Run once per project; re-run to upgrade or re-target."
 license: MIT
 metadata:
-  version: "1.1.2"
+  version: "2.3.0"
 ---
 
 # Setup (Orchestration Kit Compiler)
@@ -228,7 +228,7 @@ Ask (multiple-choice where possible) only what you could not infer:
 2. **Execution layer order** — confirm your inferred chain.
 3. **Model tiers** — for each target harness: pick CURRENT **frontier**, **light**,
    and optional **fast** model IDs, plus **alt-family** (fix-cycle rotation) and
-   **frontier-alt-family** (post-cycle-3 arbiter). Verify **every** ID against a
+   **frontier-alt-family** (post-exhaustion arbiter). Verify **every** ID against a
    live source; record the verification date and source in the
    `models-map-live-check` bootstrap text. Offer "inherit/unpinned" as an option
    (`flags.models_pinned` false). Live sources by harness:
@@ -259,17 +259,36 @@ Ask (multiple-choice where possible) only what you could not infer:
 5. **Research workflow** — wanted? Record `flags.research`.
 6. **Autonomous loop** — wanted? If yes: confirm sandbox strategy (worktree/container),
    max iterations, and that commits stay local (no auto-push) unless they say otherwise.
-   Record `flags.loop`. Persist the sandbox answer: worktree ⇒
-   `flags.loop_worktree: true` (emitted `_loop/*` drivers then default
+   When confirming the sandbox strategy, tell the user that a worktree separates the git
+   tree but is not isolation — unattended runs that skip permission prompts or disable the
+   CLI's own sandbox need a container or VM. Record `flags.loop`. Persist the sandbox answer: worktree ⇒
+   `flags.loop_worktree: true` (the emitted `_loop/loop.sh` driver then defaults to
    `LOOP_WORKTREE=1`; an explicit `LOOP_WORKTREE` env value, including `0`, still
    wins); container or none ⇒ `false`. Warn that worktree mode needs a **tracked**
    instance (`_memory/loop/backlog.md` and the harness directory committed) or the
    driver stops with exit 5 at preflight.
-7. **Delivery forge (Phase 7)** — present the detected forge and the chosen remote.
-   Confirm or override with any of `github` / `azuredevops` / `gitlab` / `none`
-   (plus `forgeHost` for self-hosted). The `ship-pr` skill is always emitted;
-   `none` means the draft + hand-over branch.
-8. **Ground-truth doc** — the committed reference file for domain decisions.
+7. **Opt-in only, or let the agent invoke `/feature` itself?** Default: auto-invocable.
+   Opt-in ⇒ `flags.opt_in: true`: `feature`, `research`, `memory-capture` get
+   `disable-model-invocation: true` (run only via `/feature`, `/research`,
+   `/memory-capture`); the seven kit agents' descriptions are scoped to kit workflows;
+   the ORCHESTRATION.md skills note and the Cursor rule switch to opt-in wording. Partial
+   on Codex (no skills tree; existing `.codex/config.toml` agent tables not rewritten). Record `flags.opt_in`.
+8. **Guard kit-owned files?** (recommended yes for new installs.) `flags.kit_guard: true`
+   emits `_kit/kit-guard.sh` (`check` for CI and the post-spawn orchestration gate),
+   Claude Code / Cursor edit-blocking hooks when `.claude/settings.json` / `.cursor/hooks.json`
+   are absent (else emit prints a merge snippet), and read-only rule text in ORCHESTRATION.md
+   and the agents.
+   Copilot and Codex get the check and rule text only. Record `flags.kit_guard`.
+9. **Log subagent and session stops?** (default no.) `flags.hook_telemetry: true` emits
+   `_kit/hook-log.sh`, Claude Code (`Stop`, `SubagentStop`, `StopFailure`) and Cursor
+   (`stop`, `subagentStop`) hooks when `.claude/settings.json` / `.cursor/hooks.json` are
+   absent (else emit prints a merge snippet), and metadata-only lines in
+   `_memory/work/hooks/events.jsonl`. Copilot and Codex get none. Record `flags.hook_telemetry`.
+10. **Delivery forge (Phase 7)** — present the detected forge and the chosen remote.
+    Confirm or override with any of `github` / `azuredevops` / `gitlab` / `none`
+    (plus `forgeHost` for self-hosted). The `ship-pr` skill is always emitted;
+    `none` means the draft + hand-over branch.
+11. **Ground-truth doc** — the committed reference file for domain decisions.
 
 The live model check happens here — the script never fetches anything. See `emitters/`
 for each harness's live-check URL and silent-fallback / cost-tier warnings.
@@ -287,7 +306,8 @@ Write `orchestration-kit.answers.json` at the repo root (`schema: 1`). Id table:
   "primary": "claude-code",
   "flags": { "research": true, "loop": true, "loop_worktree": false,
              "greenfield": false, "lint": true, "typecheck": false,
-             "models_pinned": true },
+             "models_pinned": true, "opt_in": false, "kit_guard": true,
+             "hook_telemetry": false },
   "forge": { "kind": "github", "host": "" },
   "tokens": { "PROJECT_NAME": "…", "STACK_SUMMARY": "…", "EXECUTION_LAYERS": "…" },
   "models": { "claude-code": { "frontier": "opus", "light": "sonnet", "fast": "haiku",
@@ -313,6 +333,9 @@ Each detected path-scoped rule file (Step 2) gets one
 existing-agents finding to `bootstrap.existing-agents` (which project agent covers
 which role and which agent the orchestrator uses for kit work), or `""` when no project
 agents exist. In `flags`, `loop_worktree` is optional (absent ⇒ false).
+`opt_in` is optional (absent ⇒ false; non-boolean ⇒ exit 3). `kit_guard` is
+optional (absent ⇒ false; non-boolean ⇒ exit 3). `hook_telemetry` is optional
+(absent ⇒ false; non-boolean ⇒ exit 3).
 In any table cell the kit writes, bootstrap rows included, escape a literal `|` as `\|`; never emit a bare `|` inside a cell.
 
 Do **not** put derived keys in `tokens` (marked "derived — do not set" below).
@@ -345,9 +368,13 @@ rung-5 arbiter — the emitter warns if the IDs match without this flag).
 | `{{MODEL_FAST}}` | derived — do not set. Fast-tier model ID for the primary harness; defaults to the light ID |
 | `{{CLAUDE_MODEL_*}}`, `{{CURSOR_MODEL_*}}`, `{{COPILOT_MODEL_*}}`, `{{CODEX_MODEL_*}}` | derived — do not set. Per-harness tier IDs (model map only); includes `*_MODEL_FAST` |
 | `{{MODEL_ALT_FAMILY}}` | derived — do not set. Different-family model at light-comparable tier, used by fix-cycle rotation (model map) |
-| `{{MODEL_FRONTIER_ALT_FAMILY}}` | derived — do not set. Different-family model at frontier tier, used by evaluator arbitration mode after cycle 3 (model map) |
+| `{{MODEL_FRONTIER_ALT_FAMILY}}` | derived — do not set. Different-family model at frontier tier, used by evaluator arbitration mode after fix-cycle exhaustion (model map) |
 | `{{LOOP_MODEL_CHAIN}}` | derived — do not set. Comma-separated loop fallback chain, first = preferred (from the model map's "Loop fallback chain" row); empty ⇒ the breaker still tracks state but never passes a model flag |
 | `{{LOOP_WORKTREE_DEFAULT}}` | derived — do not set. `1` when `flags.loop_worktree` is true, else `0`; default for `LOOP_WORKTREE` in `_loop/*` when the env var is unset |
+| `{{OPT_IN_AGENT_PREFIX}}` | derived — do not set. When `flags.opt_in` is true, the orchestration-kit agent description prefix (`Orchestration-kit agent — spawn only from the /feature, /research or /align-docs workflow, never for ordinary work. `); empty when false |
+| `{{OPT_IN_FEATURE_SENTENCE}}` | derived — do not set. When `flags.opt_in` is true, `Opt-in — runs only when the user types /feature.`; when false, `Invoke for any non-trivial feature.` |
+| `{{OPT_IN_RESEARCH_SUFFIX}}` | derived — do not set. When `flags.opt_in` is true, ` Opt-in — runs only when the user types /research.` appended to the research skill description; empty when false |
+| `{{OPT_IN_MEMORY_CAPTURE_SUFFIX}}` | derived — do not set. When `flags.opt_in` is true, ` Opt-in — runs only when the user types /memory-capture.` appended to the memory-capture skill description; empty when false |
 | `{{EXECUTION_LAYERS}}` | Dependency-ordered layer chain |
 | `{{GROUND_TRUTH_DOC}}` | Committed domain ground-truth doc path |
 | `{{QA_SURFACES}}` | User-facing surfaces + evidence each produces |
@@ -366,6 +393,8 @@ apply:
 - On Windows outside Git Bash: `$SETUP\bin\emit.cmd --answers orchestration-kit.answers.json`
   (path arguments use forward slashes; Git for Windows required — see
   [reference/windows-launcher.md](reference/windows-launcher.md))
+
+Every install also emits the single-copy `_kit/memory.sh`, `_kit/log-spawn.sh` and `_kit/trace-lint.sh`, each with a `.cmd` launcher for Windows.
 
 This kit repo's own dogfood uses `scripts/agent-kit/self-install.sh`. If `orchestration-kit.manifest.json` already exists, run with `--dry-run` first.
 
@@ -408,6 +437,17 @@ set `arbiter_same_family: true` or pick a different arbiter), when
 `models.<h>.alt_family` equals `models.<h>.light` (fix: pick a different
 `alt_family` so fix cycle 2 rotates models), and exits 3 for
 `best`/`fable` in a loop chain (fix: replace the entry).
+
+To adopt opt-in on an existing install, add `"opt_in": true` under `flags` in an
+answers file (e.g. copied from the manifest's embedded `answers`) and run
+`emit.sh --answers <file> --upgrade`; files hand-edited to exactly the emitted
+opt-in text count as unchanged; any other difference is blocked (exit 4) — review,
+then `--force` once. To add the guard, set `"kit_guard": true` the same way;
+existing `.claude/settings.json` / `.cursor/hooks.json` are never edited — copy
+the snippet from the emit warning; `bash $SETUP/bin/emit.sh --check` (or
+`_kit/kit-guard.sh check`) reports edited kit files at any time. To add hook
+telemetry, set `"hook_telemetry": true` the same way; existing configs get a merge
+snippet from the emit warning.
 
 On every re-run, re-detect the forge from the current remotes. If detection agrees
 with the manifest, refresh silently. If it disagrees (remote migrated, e.g.

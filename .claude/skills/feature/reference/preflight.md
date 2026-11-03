@@ -3,8 +3,8 @@
 The orchestrator runs this checklist **once** after Phase 2 goal and task files exist
 and **before Phase 3 evaluation attempt 1**. Never run it between evaluation attempts.
 Pre-flight is **read-only** toward product code: it reads goal/task files and the workspace.
-It may write goal artifacts under `_memory/work/goals/<goal>/` (`criteria-evidence.md`,
-`reference-sweep.md`) and scratch samples outside the repo; other changes stay in goal/task
+It may write goal artifacts under `_memory/work/goals/<goal>/` (`criteria-evidence.md`)
+and scratch samples outside the repo; other changes stay in goal/task
 files only. Material amendments re-run pre-flight and the full Phase 3 evaluation with a fresh evaluator and reset the cycle count; additive amendments and criterion corrections run pre-flight checks 1, 2 and 5 on the changed tasks, then a targeted evaluation.
 It produces **no score or verdict** and **never replaces** the evaluator.
 
@@ -41,17 +41,25 @@ or `test -e` fails for a non-placeholder path the task depends on or modifies.
 
 ### 2. Missed callers
 
-For every public symbol a task renames, re-signs, or changes in shape (fields,
-nullability, types, visibility, wire/serialized format), search the repo with
-`rg -n '\b<symbol>\b'` (exact uses) and `rg -n '<symbol>'` without word boundaries
-(derived identifiers such as `Get<symbol>Async`; fallback `grep -rnw` / `grep -rn`
-when `rg` is unavailable). Where the stack provides one, run a trial build or
-type-checker scoped to affected modules. Write every command and every hit to
-`_memory/work/goals/<goal>/reference-sweep.md`, each hit tagged with the owning task
-or an "unaffected because …" line.
+`goal.md` carries `## Searches` and `## Consumers` in the goal template's format, or
+`## Consumers` with `none — <reason>`. Each search was run by `terminal` and its hits are
+pasted verbatim. The searches cover exact-word and derived uses of every changed surface
+(derived identifiers such as `Get<symbol>Async`; fallback `grep -rnw` / `grep -rn` when
+`rg` is unavailable). A changed surface means identifiers, string keys, commands, flags,
+headings, file names and serialized fields, including fields whose type, visibility or
+nullability changes.
 
-**Failure:** any hit is not accounted for in some task's `writes`/`reads` or justified,
-or `reference-sweep.md` is missing for a task that renames, re-signs, or reshapes a symbol.
+Run `_kit/trace-lint.sh _memory/work/goals/<goal>/goal.md` and record the command and its
+output in `criteria-evidence.md`. Where the stack provides one, also run a trial build or
+type-checker scoped to affected modules and record it there.
+
+**Failure:** `trace-lint` exits non-zero; a surface a task changes has no search; or a goal
+that changes a shared surface has `none`.
+
+**Transition:** a goal planned before this rule (no `## Consumers` section, with a
+`reference-sweep.md`) is checked against that artifact until its next material amendment.
+That artifact lists the exact search commands and their hits, and every hit is owned by a
+task or justified.
 
 ### 3. Scope drift
 

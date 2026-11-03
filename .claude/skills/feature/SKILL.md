@@ -32,9 +32,9 @@ inline by the orchestrator (single-line output), never via `terminal`.
 
 ### Resume policy
 
-Re-evaluations RESUME the same evaluator with a delta: Phase 4/5 list only applied fixes; Phase 3 quotes newly written passages verbatim, attempt 3 fresh (`reference/goal-revisions.md`). Implementer resume and rotation per fix cycle: `reference/fix-cycles.md`.
+Re-evaluations RESUME the same evaluator with a delta: Phase 4/5 list applied fixes and carry earlier required-fix lists; Phase 3 quotes newly written passages verbatim, attempt 3 fresh (`reference/goal-revisions.md`). Implementer resume and rotation per fix cycle: `reference/fix-cycles.md`.
 
-Update ORCHESTRATION.md Orchestration Progress after each step.
+Rewrite `_memory/work/goals/[goal]/progress.md` from `templates/progress.md` after each phase, verdict and user decision; resume goals per `reference/resume.md`.
 
 ## Phase 1 — Alignment (no files)
 
@@ -44,6 +44,11 @@ Understanding" + **wait for explicit confirmation** before Phase 2. Record Phase
 `goal.md` `phases:`.
 
 ## Phase 2 — Goal creation
+
+**Prune** (once): before Recall and before the goal folder exists, run `_kit/memory.sh prune --apply` per `reference/memory-protocol.md` (Prune); it deletes finished `_memory/work/` folders whose records are committed and merged; any exit code or a missing tool never blocks.
+`note` the summary line once `_memory/work/goals/<goal>/` exists.
+
+**Unfinished goals:** offer per `reference/resume.md` (not in loop iterations).
 
 **Recall** (once): per `reference/memory-protocol.md`, search and record picked ids or
 `none` in `goal.md` `## Recalled memory`; never block on empty store; `note`
@@ -91,7 +96,7 @@ For each ready group (`reference/ready-groups.md`; `parallel: false` → one tas
 1. Launch `implementer` (`test-writer` for the test task) with a full context package.
 2. **Silent-success check**: empty/missing report ⇒ verify artifacts: present ⇒ done
    ("report lost, files verified"); absent ⇒ failed, respawn once. Never re-run when artifacts exist.
-3. Launch `evaluator` with task file, report, matching rule files, `.claude/skills/task-criteria/SKILL.md`; if read-only (evaluator.md `readonly` or refused shell), first spawn `terminal` per acceptance-criterion command, attach output.
+3. Launch `evaluator` with task file, report, matching rule files, `.claude/skills/task-criteria/SKILL.md`; if read-only (evaluator.md `readonly` or refused shell), first spawn `terminal` per acceptance-criterion command and one regression proof, attach output.
 4. **PASS** or **PASS (with notes)** → next task (notes via `--note`). **NEEDS FIXES** → fix cycle + re-evaluate (max 3). **REJECT** → escalate.
    Before any fix cycle, bypass escalation, `criteria-defect` route, or cycle-3 action, **Read `reference/fix-cycles.md`** and follow it (line-patch resume, bypass tags, ladder, rotation).
    Out-of-fence defect in a completed task's files → `reference/corrective-tasks.md`.
@@ -103,11 +108,9 @@ For each ready group (`reference/ready-groups.md`; `parallel: false` → one tas
 Launch `evaluator` in audit mode with matching rule files: every task's requirements, cross-task integration, regressions; if read-only, gather `terminal` evidence as Phase 4 step 3.
 **APPROVED** → Quality Checks (rung 3: full suite + lint/type) via spawned
 `terminal` with `make test && make test-ui`. **ISSUES** → fix via executor + re-evaluate
-(rungs 1–2), re-audit (max 3).
+(rungs 1–2), re-audit (max 3); re-audits follow `reference/fix-cycles.md` § Provenance.
 
-**Quality Checks failure**: non-zero exit with truncated excerpt ⇒ **Read** the log path
-(failure section or last ≤80 lines), route to `implementer`, re-spawn `terminal`
-with a **narrower** command — never dump the full suite here.
+**Quality Checks failure**: **Read** the log path, re-spawn `terminal` narrower, classify per ORCHESTRATION.md § Quality Checks — never dump the full suite here.
 
 If `qa: run`: after QC, spawn `evidence-collector` → `qa-evaluator` with index; re-runs re-collect.
 
@@ -116,7 +119,7 @@ via `_kit/memory.sh add`, `check` each path, log `ARCHIVED: …`; quarantine →
 driver-dispatched → `<outbox>/memory/` proposals only, no `ARCHIVED` note.
 
 Then read `goal.md`'s `phases:` block: `align_docs: false` skips Phase 6 (log "Phase 6
-skipped per goal.md"); `pull_request: false` skips Phase 7 likewise.
+skipped per goal.md"); `pull_request: false` skips Phase 7 likewise. Open `follow-ups.md` rows go in the PR body's `## Backlog (not fixed here)` (`ship-pr`), or the Phase 5 final report if Phase 7 is skipped.
 
 ## Phase 6 — Align docs (loop until doc audit APPROVED)
 

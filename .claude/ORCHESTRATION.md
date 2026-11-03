@@ -28,14 +28,15 @@ Headroom is a Python 3.10 GTK4/libadwaita desktop application for Ubuntu 22.04, 
 
 ### Why This Architecture?
 
-Traditional single-agent execution suffers from:
+Traditional single-agent execution plans, executes, and reviews its own work in one
+context window, and suffers from:
 
-| Problem | Cause | Impact |
-|---------|-------|--------|
-| **Context Fatigue** | Long conversations exhaust attention | Late tasks get less quality |
-| **Sunk Cost Bias** | Agent invested in previous work | Reluctant to reject own output |
-| **Optimism Creep** | Desire to "finish" | Cuts corners, skips edge cases |
-| **Self-Review Blindness** | Reviewing own work | Misses obvious issues |
+| Problem | Cause | Impact | How this architecture answers it |
+|---------|-------|--------|----------------------------------|
+| **Agentic laziness** (optimism creep) | Desire to "finish" | Declares the job done after partial progress; cuts corners, skips edge cases | Nothing advances without an evaluator PASS against acceptance criteria written at planning time; the `task-criteria` floor fails any completion claim the evidence contradicts (F5) |
+| **Self-preferential bias** (self-review blindness, sunk cost) | Reviewing, or invested in, its own work | Misses obvious issues; reluctant to reject its own output | Evaluators are separate subagents with no stake in the outcome whose scores start low and must be earned; fix cycle 2 rotates to a different model family, and continuation-ladder arbitration uses a different-family frontier model when one is reachable |
+| **Goal drift** | Constraints fade across many turns and compactions | Late work no longer matches the original objective | `goal.md` and the task files hold the objective, constraints, and acceptance criteria on disk; every spawn receives them in its context package, and every fix is re-evaluated against them (Mandatory Re-Evaluate Invariants) |
+| **Context fatigue** | Long conversations exhaust attention | Late tasks get less quality | Fresh context per subagent; the orchestrator recommends compaction or a fresh session once its context window is about 60% full, then resumes from `goal.md`, `progress.md` and the orchestration log (feature `reference/resume.md`) |
 
 ### The Solution: Separation of Concerns
 
@@ -65,10 +66,11 @@ Each subagent invocation:
 - Returns **one response** to the orchestrator
 - Has **no knowledge** of previous attempts or other tasks
 
-This eliminates fatigue and bias completely.
+No subagent inherits the fatigue, sunk cost, or drifted assumptions of the session that
+spawned it. The orchestrator itself is still one long session, which is why its state
+lives in files rather than in the conversation.
 
-Exception for re-checks: the evaluator is resumed with a delta prompt listing only
-the applied fixes; Phase 3 deltas quote newly written passages and Phase 3 attempt 3 is a fresh spawn per `reference/goal-revisions.md`. The implementer may be resumed for fix cycle 1 only (cycles 2–3
+Exception for re-checks: the evaluator is resumed with a delta prompt listing the applied fixes (Phase 4/5 deltas list the applied fixes plus every earlier required-fixes list); Phase 3 deltas quote newly written passages and Phase 3 attempt 3 is a fresh spawn per `reference/goal-revisions.md`. The implementer may be resumed for fix cycle 1 only (cycles 2–3
 are fresh spawns) except a line-patch-only NEEDS FIXES verdict (every required fix
 tagged `[line-patch]`) resumes the same executor (`implementer`/`test-writer`) in
 apply-verbatim mode on any cycle without model rotation, still counting toward the
@@ -123,6 +125,13 @@ non-independent and disclosed to the user and in the PR draft).
 3. **Fixtures never touch the real repo.** Tests and fixtures must never act on the real
    repository. Fixture roots live under a private temp directory, and explicitly empty path
    arguments are rejected.
+
+**Pre-existing dirty paths.** Before Phase 4 the orchestrator saves
+`git status --porcelain --untracked-files=all` to
+`_memory/work/goals/<goal>/preexisting-dirty.txt`. Those paths are never staged or edited
+by the goal, and Quality Checks classify failures against them (see **Quality Checks**).
+At the same moment the orchestrator saves `git rev-parse HEAD` to
+`_memory/work/goals/<goal>/base-commit.txt`.
 
 ---
 
@@ -281,19 +290,35 @@ are created during this phase. Discovery covers: problem, affected layer/lane,
 external surfaces touched, auth/permissions, behavior/error handling, interface
 shape, existing patterns to follow, priority.
 
-**Phase 2 — Goal creation (with decision gates).** Create `_memory/work/goals/[name]/` and write
+**Phase 2 — Goal creation (with decision gates).** Before recall, the orchestrator runs
+`_kit/memory.sh prune --apply` once to delete finished `_memory/work/` folders whose records
+are committed and merged (memory protocol, Prune). Create `_memory/work/goals/[name]/` and write
 `goal.md`. For each task: if multiple viable approaches exist, present them to the
 user and WAIT for the decision; only then create the task file. Each task file carries
 `## Acceptance Criteria` (criterion + verification method each); the Phase 3 evaluator
-validates these once for all tasks.
+validates these once for all tasks. For a goal that changes a shared surface, the
+orchestrator writes `## Searches` (each command run by `terminal`) and `## Consumers`
+into `goal.md`, and sets `trace:` (absent means `planner`); every other goal writes
+`## Consumers` with `none — <reason>`.
 
 **Phase 3 — Goal evaluation (mandatory re-evaluate loop).** Once before evaluation
 attempt 1, run the read-only pre-flight in `reference/preflight.md` (no score); it
-records `criteria-evidence.md` and `reference-sweep.md` and runs check 5 Stated facts.
-The orchestrator fixes failures and logs them, then launches the evaluator with the Phase 1
-Q&A included (for the Discovery Coverage check). The Phase 3 evaluator checks both
-artifacts when applicable. PASS → Phase 4; NEEDS REVISION →
-revise the goal + tasks and re-evaluate (3 max); REJECT → escalate to the user.
+records `criteria-evidence.md` (including the `_kit/trace-lint.sh` run) and runs check 5
+Stated facts.
+Under `trace: blind`, after pre-flight and before attempt 1, the orchestrator spawns a
+fresh read-only evaluator in consumer-trace mode with the Problem Statement and the
+Surface column only. The orchestrator diffs that trace's Consumer paths against
+`## Consumers`; every consumer the planner missed is added to the trace as a pre-flight
+fix, then `_kit/trace-lint.sh` is re-run and logged, all before attempt 1.
+The orchestrator fixes pre-flight failures and logs them, then launches the evaluator
+with the Phase 1 Q&A included (for the Discovery Coverage check). The Phase 3 evaluator
+checks the evidence and the consumer trace. When `## Searches` is non-empty, the
+evaluator names one to three `S<n>` under `### Searches to re-run`, and that verdict is
+provisional: the orchestrator runs those searches through `terminal` and resumes the
+same evaluator with the output (or fresh-spawns the same model with the package and
+output when resume is unavailable). Only the resumed verdict counts, and the round trip
+consumes no attempt. PASS → Phase 4; NEEDS REVISION → revise the goal + tasks and
+re-evaluate (3 max); REJECT → escalate to the user.
 Re-checks follow `reference/goal-revisions.md` (delta prompts quote newly written text
 verbatim; attempt 3 is a fresh full evaluation on the arbiter model, pinned in that reference).
 After a Phase 3 PASS, plan amendments are **material** (full pre-flight and Phase 3
@@ -311,7 +336,7 @@ member reaches task-evaluation PASS or PASS (with notes).
 - Step 1: Launch implementer (or test-writer for the test task) — the context
   package includes the task file (including its Acceptance Criteria); record the pre-dispatch baseline first (Repository safety item 2)
 - Step 2: Receive completion report
-- Step 3: Launch evaluator
+- Step 3: Launch evaluator — guarding tests need a regression proof (test-ladder § Regression proof) and the evaluator re-runs at least one.
 - Step 4: Handle verdict — PASS or PASS (with notes) → next task (`PASS (with notes)`
   counts as PASS; copy notes into the orchestration log); NEEDS FIXES → fix cycle (model
   rotation) and re-evaluate, 3 max, then read `goal.md`'s `phases.ladder`: `auto` → the
@@ -327,6 +352,11 @@ member reaches task-evaluation PASS or PASS (with notes).
   re-evaluated; the next cycle follows the normal path.
   A verdict tagged with a bypass failure class (destructive/security/infra)
   escalates at detection, on any cycle.
+  On re-evaluation, each required fix is tagged `[carried]` / `[regression]` / `[new]` after its kind tag; context packages carry every earlier required-fixes list; the orchestrator logs a `late finding:` note per `[new]` item; a reversal (`reverses cycle N:`) is a `criteria-defect`; see `reference/fix-cycles.md` § Provenance.
+  A `[new]` item outside the changed list that cites no `F1`, `F3`, `F4`, `F7` or `AC<n>` and is not a reversal is demoted to a `[backlog] [late]` note and never blocks (late-finding rule: task-criteria § Provenance tags).
+  At every evaluator spawn the orchestrator records a working-tree snapshot, logged as `eval-tree [#NN] task <TT|audit>: <sha>`, and each re-evaluation package carries `## Changed since last evaluation` (`reference/fix-cycles.md` § Provenance).
+  The tag-check round trip also checks that each blocking item cites an `AC<n>` within the task's criteria count (audits: `<TT>/AC<n>` within task TT's count), an existing `SC` label or `F1`–`F7`, and on re-evaluations the late-finding scope; this citation and scope check covers Phase 4 task evaluations, ladder re-evaluations and Phase 5 audits (`reference/fix-cycles.md` § Citation checks, backlog and keys).
+  The orchestrator appends every `[backlog]` note to `_memory/work/goals/<goal>/follow-ups.md` and runs `_kit/log-spawn.sh keys` once per evaluation; only `ladder: auto` reads the result, and a `[structural]` `REPEAT` there starts the ladder early (`reference/fix-cycles.md` § Citation checks, backlog and keys and § Early ladder entry).
 
 INVARIANT: A task is only marked complete after the evaluator returns PASS or
 PASS (with notes) (`PASS (with notes)` counts as PASS). There is no path where
@@ -335,14 +365,36 @@ out-of-fence defect in a completed task's files becomes a corrective task per
 `reference/corrective-tasks.md`. At each task or ready-group boundary, when the harness
 reports the main session past ~60% of its context window, recommend compaction or a fresh
 session to the user (e.g. Claude Code `/compact`; other harnesses: start a new chat and
-resume from `goal.md` and the orchestration log) — never compact automatically; log the
+resume per the feature skill's `reference/resume.md`, from `progress.md`, `goal.md` and the orchestration log) — never compact automatically; log the
 recommendation via `note`.
 
 **Phase 5 — Final audit (mandatory re-audit loop).** All tasks complete → final
-evaluator audit. APPROVED → Quality Checks (ladder rung 3: full suites, via a
+evaluator audit. The orchestrator adds the goal's changed paths to the audit package: the
+union of `git diff --name-only $(cat _memory/work/goals/<goal>/base-commit.txt)` and
+`git ls-files --others --exclude-standard`, minus the paths in `preexisting-dirty.txt`
+(strip the two-character status and the space from each `git status --porcelain` line
+first) and minus `_memory/`. It also adds the diff of the tracked paths; generated
+fixtures such as goldens stay in the path list but out of the diff, and untracked new
+files are read in full. The audit then checks (a) every `changes` row whose evidence names
+a task has its Consumer path among the changed paths (`Phase 6` rows are skipped here),
+and (b) every shared surface the diff adds, removes, renames or reshapes has a Surface
+row. A shared surface means one another component reads (item 1 of the goal-criteria
+**Consumer trace (Phase 3 gate)** paragraph); private identifiers, new tests and internal
+headings are not. Under `none — <reason>`, the audit checks the reason still holds, and a
+changed shared surface is the finding. A failure of either is a blocking finding
+citing `F6`, resolved by the `goal-revisions.md` amendment. The audit runs this check on
+the first audit.
+A goal under the transition rule in the feature skill's `reference/preflight.md` check 2
+(no `## Consumers` section) skips checks (a) and (b); the audit checks its legacy artifact
+as that rule states.
+APPROVED → Quality Checks (ladder rung 3: full suites, via a
 `terminal` spawn); ISSUES → fix (ladder rungs 1–2), then re-audit (3 max). When
 `goal.md` has `qa: run`, after Quality Checks spawn `evidence-collector` then
 `qa-evaluator` with its index (`qa: skip` or absent key omits the gate).
+Re-audits carry the same provenance tags and late-finding notes, and a re-audit reversal escalates to the user at detection.
+The audit opens corrective tasks only for cited findings; uncited ones stay `[backlog]` notes in `follow-ups.md`.
+A Quality Checks failure is narrowed first, then classified: flaky (passes on one rerun), local-edits (in or caused by a pre-existing dirty path), pre-existing (also fails on the merge base) or introduced (everything else); the handling per class is under **Quality Checks**.
+When Phase 5 ends, the open `follow-ups.md` rows go into the PR body's `## Backlog (not fixed here)` (`ship-pr` owns the format), or into the Phase 5 final report when Phase 7 is skipped.
 INVARIANT: The ONLY exit to Quality Checks is an APPROVED verdict from the audit
 subagent. Remediations MUST be re-audited.
 
@@ -353,6 +405,8 @@ skip Phase 6 with an orchestration-log entry ("Phase 6 skipped per goal.md"). Wh
 enabled, Quality Checks green → the align-docs skill: discover the shipped surface →
 per-doc edit plan → evaluate the plan → implementer per doc → evaluate each doc →
 final doc audit (same re-evaluate invariants and 3-cycle limits as Phases 3–5).
+The orchestrator lists every `changes` row with `Phase 6` evidence in the align-docs
+package, and the Phase 6 docs pass confirms each consumer was updated or states why not.
 RULES: docs-only (never code), anti-invention (every claim traces to a read file),
 `_memory/` is READ-ONLY.
 
@@ -361,8 +415,10 @@ the orchestrator reads `goal.md`'s `phases:` block — when `pull_request: false
 Phase 7 with an orchestration-log entry ("Phase 7 skipped per goal.md"). When enabled,
 docs aligned → the ship-pr skill: analyze branch commits + diff → draft the PR (exec
 summary + technical breakdown) → show the draft → USER APPROVES → push (if needed) →
-create the PR/MR or hand over → URL. Also skip when the work happened directly on the
-default branch or the user declines a PR.
+create the PR/MR or hand over → URL. The open `follow-ups.md` rows go into the PR body's
+`## Backlog (not fixed here)` (`ship-pr` owns the format), or into the Phase 5 final report
+when Phase 7 is skipped. Also skip when the work happened directly on the default branch or
+the user declines a PR.
 INVARIANT: The PR is never created before the user approves the draft.
 
 ### Forge adapter (Phase 7 delivery)
@@ -590,7 +646,7 @@ Every entry references artifact files rather than inlining them:
 - `_memory/work/goals/<goal>/spawns/NN-report.md` — the subagent's report, verbatim, never polished.
   Agents end with a `### Footprint` block (`files_read: N (~C chars)` / `commands_run: N`).
 
-Three subcommands (`--help` lists every flag):
+Four subcommands (`--help` lists every flag):
 
 - **Before launch** — `spawn --goal G --agent A --phase "P" --model-requested M --context _memory/work/goals/G/spawns/NN-context.md [--writes …] [--why …] [--expect …]`
   appends `### <ts> — SPAWN A (P) [#NN]` plus bullet lines for agent · model requested,
@@ -601,21 +657,31 @@ Three subcommands (`--help` lists every flag):
   where `model_check` compares provider **families** (not exact IDs) for the SPAWN
   `model requested:` id and `--model-reported`: `match` (both known, same family),
   `MISMATCH` (both known, different — one stderr warning, exit still 0), or
-  `unverified` (either side unknown/`inherit`/empty). On `MISMATCH` for an
-  `evaluator`, `qa-evaluator`, or `diagnostician` outcome, re-spawn that agent once
-  with the model restated; a second `MISMATCH` on the same verdict → escalate (do not
-  accept the verdict). Worker spawns (`implementer`, `test-writer`, `evidence-collector`,
-  `terminal`): log and continue. `unverified`: logged only. `io_est_tokens` T =
-  (`context_chars` + `report_chars`) / 4 — orchestrator I/O proxy (chars/4), not the
-  subagent's spend — and `work_est_tokens` W comes from the Footprint `files_read`
-  line (W = C/4; `n/a` if missing/malformed — flag to the evaluator; `--work-chars C`
-  overrides). `running io` / `running work` are the previous totals plus T / W
-  (`running io` falls back to the `running total` field of logs written by the private setup kit before 0.26; W=`n/a` adds 0).
+  `unverified` (either side unknown/`inherit`/empty).
+  When the report has no model line, pass `--model-reported unknown`; a reported value
+  starting with `unknown` always gives `model_check: unverified`.
+  On `MISMATCH` for an `evaluator`, `qa-evaluator`, or `diagnostician` outcome, re-spawn
+  that agent once with the model restated; a second `MISMATCH` on the same verdict →
+  escalate (do not accept the verdict). Worker spawns (`implementer`, `test-writer`,
+  `evidence-collector`, `terminal`): log and continue. `unverified`: logged only.
+  `io_est_tokens` T = (`context_chars` + `report_chars`) / 4 — orchestrator I/O proxy
+  (chars/4), not the subagent's spend — and `work_est_tokens` W comes from the Footprint
+  `files_read` line (W = C/4; `n/a` if missing/malformed — flag to the evaluator;
+  `--work-chars C` overrides). `running io` / `running work` are the previous totals
+  plus T / W (`running io` falls back to the `running total` field of logs written by
+  the private setup kit before 0.26; W=`n/a` adds 0).
+- **Issue keys** — `keys --goal G --spawn NN --task <TT|audit> --report _memory/work/goals/G/spawns/NN-report.md`
+  appends a `KEYS` line (and a `REPEAT` line for each repeated key); both carry each item's kind and provenance tags.
+  Only the `ladder: auto` early entry reads them, and a duplicate spawn number exits 3. The call runs once per
+  evaluation, after the round trip settles, with the evaluation's first spawn number
+  (`reference/fix-cycles.md` § Citation checks, backlog and keys).
 - **Everything else** — `note --goal G --text "…"` appends `### <ts> — …` for phase
-  completions, ladder transitions (with the rung name), guard trips, and skips (e.g.
+  completions, ladder transitions (with the rung name), guard trips, tree snapshots
+  (`eval-tree [#NN] task <TT|audit>: <sha>`, taken at every Phase 4 and Phase 5 evaluator
+  spawn per `reference/fix-cycles.md` § Provenance), and skips (e.g.
   Phase 6/7 declined via `goal.md`'s `phases:` block).
 
-Exit codes: 0 ok · 2 usage error · 3 ledger integrity (duplicate SPAWN/OUTCOME `[#NN]`,
+Exit codes: 0 ok · 2 usage error · 3 ledger integrity (duplicate SPAWN/OUTCOME/KEYS `[#NN]`,
 outcome without its SPAWN) · 4 missing goal directory or artifact file. Rejections and
 respawns are new entries with new NNs, never in-place edits.
 
@@ -628,7 +694,14 @@ respawns are new entries with new NNs, never in-place edits.
 When Task Execution (Phase 4) exhausts its 3 implement→evaluate fix cycles, read
 `goal.md`'s `phases.ladder`. `escalate` (default, or key absent): escalate to the user
 with the continuation ladder offered as option 1. `auto`: run this ladder before
-terminal human escalation. Apply in this order:
+terminal human escalation.
+
+**Early ladder entry** (`reference/fix-cycles.md` § Early ladder entry). Under `ladder: auto`
+only, a `[structural]` `REPEAT` line from `_kit/log-spawn.sh keys` ends a task's fix cycles
+before cycle 3, and the orchestrator proceeds as on cycle-3 exhaustion; the ladder budget and
+guards are unchanged, and Phase 5 never enters the ladder early.
+
+Apply the rungs in this order:
 
 1. **Bypass check (every verdict, every cycle).** A verdict tagged with a bypass failure
    class (`destructive`, `security`, `infra`) stops all retrying immediately — including
@@ -638,16 +711,18 @@ terminal human escalation. Apply in this order:
    ambiguity is not bypass — route through `criteria-defect` or rung 5 arbitration, not
    cycle-3 exhaustion alone).
 
-2. **Rung 5 — arbitration (conditional, checked first on exhaustion).** If cycles 1–3 all
+2. **Rung 5 — arbitration (conditional, checked first on exhaustion).** If every cycle that ran
    failed on the *same* required-fix item (unanimous-failure heuristic; compare items
-   tag-stripped of trailing `[line-patch]` / `[structural]`), spawn the
+   tag-stripped of trailing `[line-patch]` / `[structural]` and trailing provenance tags,
+   with the justification clause (from its start (` — missed earlier:` or
+   ` — reverses cycle `) through the end of the item) removed when present), or when the **drift trigger** fires (≥ 2 `[new]` items across the cycle 2–3 verdicts recorded in the orchestration log. Demoted `[backlog] [late]` notes count toward this total.), spawn the
    evaluator in **arbitration mode** on `opus` before any
    further fixing. Outcomes: `criteria-defective` → escalate to the human carrying the
    specific defect; arbiter/primary **disagreement → escalate (never auto-resolve)**;
    `criteria-sound` → continue to rung 4.
 
 3. **Rung 4 — diagnosis-first.** Spawn the `diagnostician` (frontier tier, no code writes)
-   with the task file (including its Acceptance Criteria), and all three fix-cycle histories. If its
+   with the task file (including its Acceptance Criteria), and every fix-cycle history that ran. If its
    hypothesis matches a previously tried fix signature → skip to rung 6 if it recommended
    a split, else escalate. Otherwise run **ONE** diagnosis-driven implementation attempt
    (fresh implementer on `opus`, using the diagnostician's rewritten
@@ -666,13 +741,13 @@ terminal human escalation. Apply in this order:
 
 **Hard guards:**
 
-- At most **3 additional implementation attempts** after cycle 3, summed across rungs 4
-  and 6.
+- At most **3 additional implementation attempts** after the last fix cycle (cycle 3, or earlier on early entry),
+  summed across rungs 4 and 6.
 - A **repeated failure signature** stops the ladder immediately.
 - Every rung transition is an orchestration-log entry recording agent, model, rung, and
   trigger.
 - Token/cost budgets are not a guard in interactive mode (no harness exposes true usage to the
-  orchestrator); the headless loop records real usage per iteration via `LOOP_USAGE_FORMAT` — gating on it is a future knob, not this ladder's.
+  orchestrator); the headless loop records real usage per iteration via `LOOP_USAGE_FORMAT` — the bash loop driver's opt-in `LOOP_*_BUDGET_*` knobs gate on it at loop level, not in this ladder.
 
 **Attempt accounting:** The diagnosis-driven implementation attempt costs 1 of the 3.
 Each rung-6 subtask implement→evaluate cycle costs 1 of the 3. Before splitting, the
@@ -680,7 +755,7 @@ orchestrator compares the failing-subtask count against the remaining budget —
 count exceeds the remaining budget, escalate instead of splitting. **Signature identity:**
 the evaluator's required-fixes list as recorded in the orchestration log, identical to an
 earlier cycle's list item-for-item after normalizing whitespace and list numbering and
-stripping trailing `[line-patch]` / `[structural]` tags from each item.
+stripping trailing `[line-patch]` / `[structural]` tags from each item and trailing provenance tags (`[carried]` / `[regression]` / `[new]`) from each item and the justification clause (from its start (` — missed earlier:` or ` — reverses cycle `) through the end of the item) from each item when present.
 
 **Deferred future rungs (out of scope):**
 
@@ -688,7 +763,7 @@ stripping trailing `[line-patch]` / `[structural]` tags from each item.
 - **best-of-N** — conflicts with disjoint write-set admission; no procedure defined here.
 
 The headless loop inherits this ladder because each iteration runs the phased flow; the
-loop drivers' per-story attempt cap and circuit breakers stay the unchanged outer
+loop driver's per-story attempt cap and circuit breakers stay the unchanged outer
 backstop.
 
 ### Retry Limits by Phase
@@ -696,7 +771,7 @@ backstop.
 | Phase | Max Cycles | On Exhaust |
 |-------|------------|------------|
 | Goal Evaluation (Phase 3) | 3 revise→re-evaluate (attempt 3: fresh arbiter evaluator; material amendments reset the cycle) | Escalate to user |
-| Task Execution (Phase 4) | 3 implement→evaluate per task | phases.ladder=auto: continuation ladder (rungs 5→4→6) then escalate; escalate (default): escalate to user, ladder offered |
+| Task Execution (Phase 4) | 3 implement→evaluate per task (`ladder: auto`: fewer on early ladder entry) | phases.ladder=auto: continuation ladder (rungs 5→4→6) then escalate; escalate (default): escalate to user, ladder offered |
 | Final Audit (Phase 5) | 3 fix→re-audit | Escalate to user |
 | Align Docs (Phase 6) | 3 per doc + 3 for plan and final doc audit | Escalate to user |
 | Pull Request (Phase 7) | n/a — gated on explicit user approval | User edits or declines the draft |
@@ -747,7 +822,7 @@ single-writer integrator; dispatched slots never re-select stories, never increm
 **manual** runs only. After each slot reap (post-CB0, post-disposal), the integrator
 **step 3b** adds `<outbox>/memory/*.md` proposals via `_kit/memory.*` and may make a
 path-limited `chore(memory): <story-id> records` commit (see **Memory** below). Concurrency: `LOOP_SLOTS` > 1 is honored iff `LOOP_WORKTREE=1`
-(default 2, clamped [1,3]). Usage capture: `LOOP_USAGE_FORMAT` (`auto`|`claude`|`codex`|
+(default 2, clamped [1,3]). Usage capture: `LOOP_USAGE_FORMAT` (`auto`|`claude`|`claude-stream`|`codex`|
 `cursor`|`none`; `auto` = basename of `LOOP_CLI`'s first word) and optional `LOOP_USAGE_LOG`. When a
 format is active the driver prints `usage: input=<n> output=<n> cache_read=<n|n/a>
 cache_write=<n|n/a> cost_usd=<x|n/a> format=<f>` after each slot's `tail -n 25` block
@@ -780,30 +855,45 @@ flowchart TD
 
 | Guard | Default |
 |-------|---------|
-| Max iterations per run | 10 (argument to the loop driver (`loop.sh`/`loop.ps1`)) |
+| Max iterations per run | 10 (argument to the loop driver (`loop.sh`)) |
 | Per-story attempt cap | 3, then blocked + escalation entry |
 | Circuit breaker | per slot: retire after 3 consecutive no-commit reaps or 5 identical failure signatures (run continues); every slot retired stops the run — exit 3 if any signature-retirement, else 2 |
-| Model breaker | CLOSED/OPEN/HALF-OPEN on anchored rate-limit detection; 600s cooldown, 2 successes to close; falls down the loop model chain, omit-pin at chain end; OPEN sleeps instead of hammering; rate-limited passes CB1-exempt |
+| Model breaker | CLOSED/OPEN/HALF-OPEN on anchored rate-limit detection; 600s cooldown, 2 successes to close; falls down the loop model chain, omit-pin at chain end; OPEN sleeps instead of hammering; rate-limited passes CB1-exempt; upward probe of chain[0] after a fallback — first delay 1800 s, doubling with 1800 s floor, 14400 s (4 h) cap; success stays on chain[0], failure restores the pre-probe model (shared across slots) |
 | Exit condition | driver-dispatched runs: the driver's own backlog re-scan, gated on zero quarantined branches (exit 0); manual runs: explicit `<promise>COMPLETE</promise>` sentinel — never inferred from prose |
 | Merge gate | evaluator PASS + green ladder rungs 1–2 before any commit; rung 3 per story after that story's Phase 5 audit, before that story's commit |
 | Docs | align-docs (Phase 6) runs per story — doc updates land in the story's commit |
-| Protected paths | the loop may not modify `_loop/`, kit agents/skills, the manifest, or `.gitattributes` — the loop driver (`loop.sh`/`loop.ps1`) reverts the iteration and stops (exit 4). `_memory/records/` and `_memory/quarantine/`: never staged by dispatched slots (created only via `_kit/memory.*` — integrator step 3b, or the manual iteration with its story commit) |
+| Protected paths | the loop may not modify `_loop/`, kit agents/skills, the manifest, or `.gitattributes` — the loop driver (`loop.sh`) reverts the iteration and stops (exit 4). `_memory/records/` and `_memory/quarantine/`: never staged by dispatched slots (created only via `_kit/memory.*` — integrator step 3b, or the manual iteration with its story commit) |
 | Memory gates | `_memory/loop/LEARNINGS.md` ≥ 15 KB → compact; `_memory/loop/ESCALATIONS.md` ≥ 20 KB → archive resolved entries |
 | Shipping | the loop never pushes; at run end, `ship-pr` (Phase 7) drafts and creates the PR/MR on the project's forge, or hand over, with the user approving the draft |
-| Sandbox | run in a worktree/container with minimal credentials; never skip permission prompts outside a sandbox |
+| Sandbox | run in a worktree/container with minimal credentials; never skip permission prompts (or disable the CLI's own sandbox) outside a container or VM — a worktree only separates the git tree and is not isolation |
+| Iteration timeout / budgets | opt-in (`LOOP_ITER_TIMEOUT`, `LOOP_RUN_BUDGET_TOKENS`, `LOOP_STORY_BUDGET_TOKENS`, `LOOP_RUN_BUDGET_USD`, `LOOP_STORY_BUDGET_USD`, `LOOP_ITER_BUDGET_USD`); run-budget stop exits 1 when eligible work remains; missing usage/cost data fails open |
+| Tamper check | `LOOP_TAMPER_CHECK` = `warn` (default) \| `fail` (worktree only — requires `LOOP_WORKTREE=1`) \| `off`; optional `LOOP_TEST_PATTERNS`; `fail` quarantines with reason `tamper` |
+
+These guards follow the unattended-run rules in Anthropic's [Building effective agent automations](https://claude.dev/blog/building-effective-agent-automations/).
+
+**Pre-existing failures.** Loop runs never commit fixes for pre-existing failures (the
+**pre-existing** class under **Quality Checks**); those failures become `follow-ups.md` rows.
+
+**Additional knobs:** `LOOP_LEDGER` (default on → `$PWD/_memory/loop/ledger.jsonl`, set `off` to disable); `LOOP_DOSSIER` (default on → `$PWD/_memory/loop/attempts/<story-id>.md`, `off` disables); `LOOP_USAGE_FORMAT=claude-stream` (opt-in stream-json with typed `api_retry` rate-limit detection; text fallback limited to stderr plus the final result envelope); `--lint [backlog-path]` (readiness check, exit 0/1/5, no side effects); plus the timeout, budget, and tamper knobs above.
 
 **Exit funnel** (driver-aggregated across slots; precedence **4>3>2>1>0** — exit 4 and
 exit 5 short-circuit): **exit 1** = max-iterations reached with eligible stories
-remaining, or drained backlog with quarantined branches retained; **exit 5** = setup or
+remaining, or a run budget (`LOOP_RUN_BUDGET_TOKENS` /
+`LOOP_RUN_BUDGET_USD`) stopped claiming new stories while eligible work remains, or
+drained backlog with quarantined branches retained; **exit 5** = setup or
 integration failure (tracked-instance preflight, missing/unreadable backlog, PROMPT.md
-substitution point, non-fast-forward integration). Quarantine markers
-`.loop-worktrees/QUARANTINE-<branch>.md` (reasons: `mismatch|abnormal|subset|killed`)
+substitution point, non-fast-forward integration; invalid
+`LOOP_ITER_TIMEOUT`, budget (`LOOP_*_BUDGET_*`) or `LOOP_TAMPER_CHECK` value, missing
+`timeout`/`gtimeout` when `LOOP_ITER_TIMEOUT` is set, a `timeout` without `-s`/`-k` support,
+`LOOP_TAMPER_CHECK=fail` without `LOOP_WORKTREE=1`, **`--lint`** on a missing, unreadable,
+or directory backlog). Quarantine markers
+`.loop-worktrees/QUARANTINE-<branch>.md` (reasons: `mismatch|abnormal|subset|tamper|killed`)
 block exit 0 until inspected.
 
 Known failure mode: loops can burn large budgets without converging — prefer more,
 smaller stories (each sized to one context window) and let the circuit breaker stop a
 drifting run early. Headless entry point: `_loop/loop.sh [max-iterations]` (bash) or
-`pwsh _loop/loop.ps1 [MaxIterations]` (PowerShell 7+).
+`_loop\loop.cmd [max-iterations]` on Windows from cmd or PowerShell (Git for Windows required).
 
 ---
 
@@ -840,6 +930,7 @@ flowchart TD
 | **Loop (dispatched)** | At `LOOP_WORKTREE=0`: feature recall once before Phase 2 in the slot; at `LOOP_WORKTREE=1`: empty recall (no `_kit/` in slot worktrees) | Proposals in `<outbox>/memory/*.md`; integrator **step 3b** at reap end |
 | **Capture** | Optional recall when distilling a session | `memory-capture` skill: `_kit/memory.sh capture` → scope confirm → distill → `add` → `check`; gitignored `_memory/raw/` |
 | **Back-fill** | Optional recall before a one-time legacy import | `_kit/memory.sh backfill --plan` (no writes), review output, then `--apply`; sources under `_memory/work/goals/`, `_memory/work/research/`, and `_memory/loop/ESCALATIONS.md` plus `_memory/loop/archive/`; closed signals — the kit writes the `ARCHIVED:` note and `_memory/work/research/<topic>/ingested`; a human adds the escalation `resolved:` line — see `_memory/README.md` (`backfill`, **Closed signals**); one-time transcript import via `memory-capture` (runbook: `.claude/skills/feature/reference/memory-capture.md`; Codex-only installs: run `capture` per `_memory/README.md` and distill from a Claude Code, Cursor or Copilot session) |
+| **Prune** | — | Feature Phase 2 start, before recall: `_kit/memory.sh prune --apply` deletes `_memory/work/goals/<goal>/` and `_memory/work/research/<topic>/` folders whose archived record ids are all committed in `HEAD` and on the remote default branch when one exists; uncommitted, unmerged or unarchived folders are kept with a reason; preview with `--plan` — see `_memory/README.md` (`prune`) |
 
 Before committing memory records, run `_kit/memory.sh check <paths>`, or
 `check --staged` for everything staged. Exit **3** means the gate failed (secret, hash/id mismatch,
@@ -877,13 +968,13 @@ installs have no kit skills tree (no protocol copy on disk).
 │   ├── implementer.md  # Focused implementer
 │   ├── test-writer.md           # Test creator (external services mocked)
 │   ├── terminal.md              # Bash/PowerShell runner — returns only the asked-for result
-│   └── diagnostician.md         # Diagnosis-only (post-cycle-3, no code writes)
+│   └── diagnostician.md         # Diagnosis-only (post-exhaustion, no code writes)
 │
 ├── skills/
 │   ├── feature/       # Feature coordination
 │   │   ├── SKILL.md
-│   │   ├── reference/{continuation-ladder.md,preflight.md,ready-groups.md,degraded-mode.md,memory-protocol.md,memory-capture.md,goal-revisions.md,corrective-tasks.md,fix-cycles.md}
-│   │   └── templates/{goal.md,task.md}
+│   │   ├── reference/{continuation-ladder.md,preflight.md,ready-groups.md,degraded-mode.md,memory-protocol.md,memory-capture.md,resume.md,goal-revisions.md,corrective-tasks.md,fix-cycles.md}
+│   │   └── templates/{goal.md,task.md,progress.md}
 │   │
 │   ├── memory-capture/SKILL.md       # Session transcript distillation
 │   │
@@ -903,17 +994,21 @@ installs have no kit skills tree (no protocol copy on disk).
 
 _memory/loop/backlog.md               # Story backlog for the autonomous loop (if enabled)
 _memory/work/goals/<goal>/orchestration-log.md  # Append-only spawn ledger per goal (written by _kit/log-spawn.*)
+_memory/work/goals/<goal>/progress.md  # Orchestration Progress checkpoint (feature templates/progress.md; resume per reference/resume.md)
 _memory/work/goals/<goal>/spawns/NN-context.md  # Context package sent to spawn #NN (verbatim)
 _memory/work/goals/<goal>/spawns/NN-report.md   # Report returned by spawn #NN (verbatim)
 _memory/loop/breaker-state.json       # Model circuit breaker state (runtime, gitignored)
+_memory/loop/ledger.jsonl             # Run ledger — one JSON line per reaped/killed slot (runtime, gitignored)
+_memory/loop/attempts/                # Attempt dossiers per story (runtime, gitignored)
 _kit/{log-spawn.sh,log-spawn.cmd}  # Single-copy tools: orchestration-log writer + Windows launcher
-_kit/{memory.sh,memory.ps1}  # Single-copy tools: memory store (add / index / search / show / redact / check / rm / capture / backfill)
+_kit/{memory.sh,memory.cmd}  # Single-copy tools: memory store (add / index / search / show / redact / check / rm / capture / backfill / prune)
+_kit/{trace-lint.sh,trace-lint.cmd}  # Single-copy tools: consumer-trace lint + Windows launcher
 _memory/records/ · _memory/quarantine/  # Tracked memory records (immutable, one per file) — see _memory/README.md
 _memory/research/               # Tracked research briefs (<topic>.md) + README.md status index (orchestrator-owned)
 _memory/work/                   # Gitignored in-flight goal and research scratch (research: work/research/<topic>/) — see _memory/README.md
-_memory/loop/                   # Tracked loop ledgers and archive (breaker-state.json gitignored)
+_memory/loop/                   # Tracked loop ledgers and archive (breaker-state.json, ledger.jsonl, attempts/ gitignored)
 _memory/.index/ · _memory/raw/  # Derived index; capture output, ledgers and drafts (gitignored)
-_loop/{loop.sh,loop.ps1,breaker.sh,breaker.ps1,PROMPT.md}  # Headless loop driver (if enabled)
+_loop/{loop.sh,loop.cmd,breaker.sh,PROMPT.md}  # Headless loop driver (if enabled)
 ```
 - Supporting project skills available under `.claude/skills/`: `python-testing-patterns`, `python-design-patterns`, `python-code-style`, `pytest-coverage`, and `github-actions-templates` (installed project-locally under `.agents/skills/`).
 
@@ -947,6 +1042,20 @@ the closing gate — the `test-ladder` skill governs which rung runs when. Rung 
 `terminal`** with the command above, never by the orchestrator running it in this
 session.
 
+**Failure classes.** On a failure the orchestrator reads the log path (failure section or
+last ≤80 lines), then narrows the command (re-spawn `terminal` with a narrower one; the
+full suite never lands in this session), then classifies the failure in this order:
+
+- **flaky** — the narrowed command passes on one rerun; add a `follow-ups.md` backlog row
+  (source: the quality-check class).
+- **local-edits** — the failure is in, or caused by, a path in `preexisting-dirty.txt`
+  (see Repository safety); escalate to the user.
+- **pre-existing** — the narrowed command also fails on the merge base, run in a temporary
+  detached worktree under the OS temp dir and removed afterwards. Interactive runs report it,
+  add a backlog row with the base output and offer a separate commit; loop and autonomous
+  runs only add the backlog row.
+- **introduced** — everything else; it goes to the implementer as a narrow fix.
+
 ### Common Commands
 
 **Setup:**
@@ -971,7 +1080,7 @@ _kit/log-spawn.sh outcome --goal my-goal --spawn 03 --report _memory/work/goals/
 _kit/log-spawn.sh note --goal my-goal --text "Phase 4 complete"
 ```
 
-**Memory store** (Windows outside Git Bash: `_kit\memory.cmd …` — Git for Windows required; same flags; `memory.ps1` remains for `loop.ps1`):
+**Memory store** (Windows outside Git Bash: `_kit\memory.cmd …` — Git for Windows required; same flags):
 ```bash
 _kit/memory.sh add --kind decision --title "Example" --body /tmp/body.md --harness claude
 _kit/memory.sh search orchestration --kind decision,pitfall --limit 5
@@ -980,6 +1089,7 @@ _kit/memory.sh check --staged
 _kit/memory.sh capture --harness all --idle-hours 6
 _kit/memory.sh backfill --plan
 _kit/memory.sh backfill --apply --only my-research-topic --research
+_kit/memory.sh prune --plan
 ```
 
 ### Invoking Skills
@@ -1003,14 +1113,14 @@ evaluator subagents — they are not invoked directly.
 | `evaluator` | Score starts at 2/5 | Actively looks for code problems | Bypassing SafetyPolicy allow/deny checks or delete-time revalidation; following symlinks or crossing filesystems during cleanup; invoking external commands through a shell; allowing tests to touch the real HOME or host system. |
 | `qa-evaluator` | Score starts at 2/5 | User-perspective behavioral QA | Dry-run changes files; previewed actions differ from executed actions; the UI reports success without matching per-item results/log evidence; cancellation or running-app guards are ignored; caution/advanced cleanup proceeds without its required confirmation. |
 | `evidence-collector` | Evidence only | Runs surfaces, writes index under goal qa/ | n/a |
-| `implementer` | Must complete ALL | Checklist-driven execution | Skipping requirements |
-| `test-writer` | 100% coverage required | Outcome-verifying tests | Functions without tests, live external-service calls |
+| `implementer` | Must complete ALL | Checklist-driven execution | Skipping requirements, guarding tests without a regression proof |
+| `test-writer` | 100% coverage required | Outcome-verifying tests | Functions without tests, live external-service calls, guarding tests without a regression proof |
 
 Evaluator: bypassed SafetyPolicy or delete-time revalidation; symlink following or filesystem crossing; shell subprocesses; tests touching real HOME/system. QA: dry-run changes; preview/execution mismatch; success without effect; ignored cancel, running-app, or confirmation guard.
 
 ### Workflow State Tracking
 
-The orchestrator maintains this state throughout execution:
+The orchestrator maintains this state throughout execution: the block lives in `_memory/work/goals/[goal]/progress.md`, written from the feature skill's `templates/progress.md` (which adds Next step, Git, Tasks, In flight, Waiting on user, Deviations and exclusions, and replaces the Phase 4 table below with its `## Tasks` table), never in this file; resume per the feature skill's `reference/resume.md`.
 
 ```markdown
 ## Orchestration Progress: [Goal Name]
@@ -1062,7 +1172,7 @@ See ### Forge adapter (Phase 7 delivery).
 ## Summary
 
 1. **Orchestrators coordinate, never execute** - They prepare context and make decisions
-2. **Subagents execute with fresh context** - No fatigue, no bias
+2. **Subagents execute with fresh context** - No inherited fatigue, bias, or drift
 3. **Evaluation is always separate** - Pessimistic evaluators review all work (code AND behavior)
 4. **Re-evaluate is mandatory** - Fixes/revisions MUST be re-verified by an evaluator subagent
 5. **Retries have limits (3 cycles)** - Phase 4 task execution then reads `phases.ladder`: `auto` continues through the continuation ladder (rungs 5→4→6) before escalation; `escalate` (default) escalates with the ladder offered; other phases escalate after 3 cycles

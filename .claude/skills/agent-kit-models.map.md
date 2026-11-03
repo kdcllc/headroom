@@ -79,7 +79,7 @@ fix cycle 2 and continuation-ladder rung 4 should escalate to a human sooner.
 
 ### After cycle 3 — continuation ladder pins
 
-When fix cycles 1–3 exhaust, the continuation ladder (see ORCHESTRATION.md) applies:
+When fix cycles are exhausted (cycle 3, or earlier on early ladder entry), the continuation ladder (see ORCHESTRATION.md) applies:
 
 | Ladder step | Model pin |
 |-------------|-----------|

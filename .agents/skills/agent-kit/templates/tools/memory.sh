@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# memory.sh — add|index|search|show|redact|check|rm|capture|backfill
-# Twin: memory.ps1 (PowerShell 7.2+) — behaviorally identical — any divergence is a bug;
-# memory.ps1 is retained as a helper for loop.ps1 until loop twins retire.
+# memory.sh — add|index|search|show|redact|check|rm|capture|backfill|prune
 # Emitted single-copy to `_kit/memory.sh` (Windows outside Git Bash: `_kit\memory.cmd`).
 #
 #   memory.sh add --kind <k> --title <t> --body <path>
@@ -15,6 +13,7 @@
 #   memory.sh rm <id> [--root <dir>]
 #   memory.sh capture [--harness cursor|claude|codex|all] [--from <dir>] … [--root <dir>]
 #   memory.sh backfill [--plan|--apply] [--goals] [--research] [--escalations] [--only <name>] [--root <dir>]
+#   memory.sh prune [--plan|--apply] [--goals] [--research] [--only <name>] [--root <dir>]
 #
 # Exit codes: 0 ok · 2 usage/format · 3 gate failed · 4 missing root, file, id, or optional dependency · 5 quarantined.
 # Errors: one line on stderr prefixed `memory: `. Store path: `<root>/_memory/`.
@@ -56,7 +55,7 @@ valid_record_id() { # <id>
 
 usage() {
   cat <<'EOF'
-usage: memory.sh <add|index|search|show|redact|check|rm|capture|backfill> [--root <dir>] ...
+usage: memory.sh <add|index|search|show|redact|check|rm|capture|backfill|prune> [--root <dir>] ...
   add    --kind <k> --title <t> --body <path> [--source <s>] [--tags <list>] [--supersedes <list>] [--harness <h>]
   index  [--root <dir>]
   search <term>... [--kind <list>] [--limit <n>] [--include-superseded] [--engine grep|fts]
@@ -66,6 +65,7 @@ usage: memory.sh <add|index|search|show|redact|check|rm|capture|backfill> [--roo
   rm     <id> [--root <dir>]
   capture [--harness cursor|claude|codex|all] [--from <dir>] [--idle-hours <n>] [--since <YYYY-MM-DD>] [--root <dir>]
   backfill [--plan|--apply] [--goals] [--research] [--escalations] [--only <name>] [--root <dir>]
+  prune  [--plan|--apply] [--goals] [--research] [--only <name>] [--root <dir>]
 exit: 0 ok · 2 usage/format · 3 gate failed · 4 missing root/file/id/dependency · 5 quarantined
 EOF
 }
@@ -3086,6 +3086,437 @@ cmd_backfill() {
   exit 0
 }
 
+prune_only_name_invalid() { # <name>
+  local n="$1"
+  case "$n" in
+    ''|.|..) return 0 ;;
+    .*|*/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+prune_have_git() {
+  command -v git >/dev/null 2>&1
+}
+
+prune_git_worktree_ok() { # <root>
+  [ "$(git -C "$1" rev-parse --is-inside-work-tree 2>/dev/null || true)" = true ]
+}
+
+prune_git_head_ok() { # <root>
+  git -C "$1" rev-parse --verify -q HEAD^{commit} >/dev/null 2>&1
+}
+
+prune_resolve_base_ref() { # <root> → stdout ref or empty
+  local root="$1" ref
+  for ref in refs/remotes/origin/HEAD refs/remotes/origin/main refs/remotes/origin/master; do
+    if git -C "$root" rev-parse --verify -q "${ref}^{commit}" >/dev/null 2>&1; then
+      printf '%s' "$ref"
+      return 0
+    fi
+  done
+  return 1
+}
+
+prune_extract_ids() { # <text> → stdout one id per line
+  printf '%s' "$1" | LC_ALL=C grep -oE '[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}' || true
+}
+
+prune_id_in_worktree() { # <root> <id>
+  local root="$1" id="$2" store
+  store="$(store_dir "$root")"
+  [ -f "$(id_to_record_path "$store" "$id")" ] && return 0
+  [ -f "$(id_to_quarantine_path "$store" "$id")" ] && return 0
+  return 1
+}
+
+prune_id_in_git_ref() { # <root> <id> <ref>
+  local root="$1" id="$2" ref="$3" store rel_rec rel_q
+  store="$(store_dir "$root")"
+  rel_rec="$(relpath_under_root "$root" "$(id_to_record_path "$store" "$id")")"
+  rel_q="$(relpath_under_root "$root" "$(id_to_quarantine_path "$store" "$id")")"
+  git -C "$root" cat-file -e "${ref}:./${rel_rec}" >/dev/null 2>&1 && return 0
+  git -C "$root" cat-file -e "${ref}:./${rel_q}" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+prune_verdict_ids() { # <root> <base_ref> <id-list-file> → stdout keep:… or would-delete
+  local root="$1" base_ref="$2" id_file="$3" id
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
+    valid_record_id "$id" || continue
+    if ! prune_id_in_worktree "$root" "$id" && ! prune_id_in_git_ref "$root" "$id" HEAD; then
+      printf 'keep:missing:%s' "$id"
+      return 0
+    fi
+    if prune_id_in_worktree "$root" "$id" && ! prune_id_in_git_ref "$root" "$id" HEAD; then
+      printf 'keep:uncommitted:%s' "$id"
+      return 0
+    fi
+    if [ -n "$base_ref" ] && prune_id_in_git_ref "$root" "$id" HEAD && ! prune_id_in_git_ref "$root" "$id" "$base_ref"; then
+      printf 'keep:unmerged:%s' "$id"
+      return 0
+    fi
+  done < "$id_file"
+  printf 'would-delete'
+}
+
+prune_candidate_tracked() { # <root> <rel-under-root>
+  local root="$1" rel="$2" listed
+  listed="$(git -C "$root" --literal-pathspecs ls-files -- "./$rel" 2>/dev/null || true)"
+  [ -n "$listed" ]
+}
+
+prune_goal_source_id_paths() { # <store> <goal> <out-file> — LC_ALL=C sorted abs paths
+  local store="$1" g="$2" out="$3" want="goal $g (goal.md)" list f
+  list="$(mk_tmp)"
+  : > "$out"
+  glob_dedupe_files "$store" "$list"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    read_frontmatter "$f" || continue
+    [ "$FM_SOURCE" = "$want" ] || continue
+    printf '%s\n' "$f" >> "$out"
+  done < "$list"
+  if [ -s "$out" ]; then
+    LC_ALL=C sort -u "$out" -o "$out"
+  fi
+}
+
+prune_goal_decide() { # <root> <store> <goal> <git_ok> <base_ref> → stdout keep:… or would-delete
+  local root="$1" store="$2" g="$3" git_ok="$4" base_ref="$5"
+  local work_dir="$root/_memory/work" goals_dir="$work_dir/goals" cand="$goals_dir/$g"
+  local log="$cand/orchestration-log.md" line last_arch="" id_file ids id f src_list
+  if [ "$git_ok" -eq 0 ]; then
+    printf 'keep:no-git'
+    return 0
+  fi
+  if [ -L "$cand" ] || [ -L "$goals_dir" ] || [ -L "$work_dir" ]; then
+    printf 'keep:symlink'
+    return 0
+  fi
+  if prune_candidate_tracked "$root" "_memory/work/goals/$g"; then
+    printf 'keep:tracked'
+    return 0
+  fi
+  if [ ! -f "$log" ]; then
+    printf 'keep:no-log'
+    return 0
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    if printf '%s\n' "$line" | LC_ALL=C grep -Eq '^### [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2} — ' 2>/dev/null &&
+      printf '%s\n' "$line" | LC_ALL=C grep -Fq 'ARCHIVED:' 2>/dev/null; then
+      last_arch="$line"
+    fi
+  done < "$log"
+  id_file="$(mk_tmp)"
+  : > "$id_file"
+  if [ -n "$last_arch" ]; then
+    ids="${last_arch##*ARCHIVED:}"
+    prune_extract_ids "$ids" > "$id_file"
+    if [ ! -s "$id_file" ]; then
+      printf 'keep:no-ids'
+      return 0
+    fi
+    prune_verdict_ids "$root" "$base_ref" "$id_file"
+    return 0
+  fi
+  src_list="$(mk_tmp)"
+  prune_goal_source_id_paths "$store" "$g" "$src_list"
+  if [ ! -s "$src_list" ]; then
+    printf 'keep:not-archived'
+    return 0
+  fi
+  : > "$id_file"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    id="$(basename "$f" .md)"
+    valid_record_id "$id" && printf '%s\n' "$id" >> "$id_file"
+  done < "$src_list"
+  if [ ! -s "$id_file" ]; then
+    printf 'keep:no-ids'
+    return 0
+  fi
+  prune_verdict_ids "$root" "$base_ref" "$id_file"
+}
+
+prune_research_decide() { # <root> <store> <topic> <git_ok> <base_ref>
+  local root="$1" store="$2" t="$3" git_ok="$4" base_ref="$5"
+  local work_dir="$root/_memory/work" research_dir="$work_dir/research" cand="$research_dir/$t"
+  local ingested="$cand/ingested" line2 id_file
+  if [ "$git_ok" -eq 0 ]; then
+    printf 'keep:no-git'
+    return 0
+  fi
+  if [ -L "$cand" ] || [ -L "$research_dir" ] || [ -L "$work_dir" ]; then
+    printf 'keep:symlink'
+    return 0
+  fi
+  if prune_candidate_tracked "$root" "_memory/work/research/$t"; then
+    printf 'keep:tracked'
+    return 0
+  fi
+  if [ ! -f "$ingested" ]; then
+    printf 'keep:not-archived'
+    return 0
+  fi
+  line2="$(sed -n '2p' "$ingested" 2>/dev/null || true)"
+  line2="${line2%$'\r'}"
+  id_file="$(mk_tmp)"
+  prune_extract_ids "$line2" > "$id_file"
+  if [ ! -s "$id_file" ]; then
+    printf 'keep:no-ids'
+    return 0
+  fi
+  prune_verdict_ids "$root" "$base_ref" "$id_file"
+}
+
+prune_try_delete() { # <root> <kind> <name> → stdout reason on failure, exit 0 ok 1 fail
+  local root="$1" kind="$2" name="$3" parent cand abs
+  case "$kind" in
+    goal) parent="$root/_memory/work/goals" ;;
+    research) parent="$root/_memory/work/research" ;;
+  esac
+  cand="$parent/$name"
+  if [ ! -d "$cand" ] || [ -L "$cand" ]; then
+    printf 'not a deletable directory'
+    return 1
+  fi
+  case "$name" in
+    ''|.|..|.*|*/*)
+      printf 'path not under expected parent'
+      return 1
+      ;;
+  esac
+  abs="$( (CDPATH= cd -- "$parent" && pwd -P) )/$name" || {
+    printf 'bad path'
+    return 1
+  }
+  rm -rf -- "$abs" || {
+    printf 'rm failed'
+    return 1
+  }
+  if [ -e "$cand" ]; then
+    printf 'still exists'
+    return 1
+  fi
+  return 0
+}
+
+prune_list_candidates() { # <dir> <out-file>
+  local dir="$1" out="$2" raw path
+  : > "$out"
+  if [ ! -d "$dir" ] && [ ! -L "$dir" ]; then
+    return 0
+  fi
+  raw="$(mk_tmp)"
+  find -H "$dir" -mindepth 1 -maxdepth 1 2>/dev/null | LC_ALL=C sort > "$raw" || true
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    [ -d "$path" ] || continue
+    printf '%s\n' "$path" >> "$out"
+  done < "$raw"
+}
+
+cmd_prune() {
+  local root="" mode="plan" do_goals=1 do_research=1
+  local seen_root=0 seen_plan=0 seen_apply=0 seen_goals=0 seen_research=0 seen_only=0
+  local only_raw=""
+  local w=0 k=0 d=0 f=0
+  local git_ok=1 base_ref="" work_dir goals_dir research_dir
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --root) need_val "$@"; [ "$seen_root" -eq 0 ] || die 2 "repeated flag '--root'"; seen_root=1; root="$2"; shift 2 ;;
+      --plan) [ "$seen_apply" -eq 0 ] || die 2 "prune takes --plan or --apply, not both"; seen_plan=1; mode="plan"; shift ;;
+      --apply) [ "$seen_plan" -eq 0 ] || die 2 "prune takes --plan or --apply, not both"; seen_apply=1; mode="apply"; shift ;;
+      --goals) [ "$seen_goals" -eq 0 ] || die 2 "repeated flag '--goals'"; seen_goals=1; do_goals=1; shift ;;
+      --research) [ "$seen_research" -eq 0 ] || die 2 "repeated flag '--research'"; seen_research=1; do_research=1; shift ;;
+      --only) need_val "$@"; seen_only=1; only_raw="${only_raw}$2$NL"; shift 2 ;;
+      --*) die 2 "unknown flag '$1'" ;;
+      *) die 2 "unexpected argument '$1'" ;;
+    esac
+  done
+
+  if [ "$seen_goals" -eq 1 ] || [ "$seen_research" -eq 1 ]; then
+    do_goals=0
+    do_research=0
+    [ "$seen_goals" -eq 1 ] && do_goals=1
+    [ "$seen_research" -eq 1 ] && do_research=1
+  fi
+
+  [ "$seen_root" -eq 1 ] || root="$(default_root)"
+  root="$(resolve_root "$root")"
+  local store
+  store="$(store_dir "$root")"
+  work_dir="$root/_memory/work"
+  goals_dir="$work_dir/goals"
+  research_dir="$work_dir/research"
+
+  local only_file processed_only goal_names research_names
+  only_file="$(mk_tmp)"
+  processed_only="$(mk_tmp)"
+  goal_names="$(mk_tmp)"
+  research_names="$(mk_tmp)"
+  : > "$only_file"
+  : > "$processed_only"
+  : > "$goal_names"
+  : > "$research_names"
+  if [ "$seen_only" -eq 1 ]; then
+    printf '%s' "$only_raw" > "$only_file"
+  fi
+
+  if ! prune_have_git || ! prune_git_worktree_ok "$root" || ! prune_git_head_ok "$root"; then
+    git_ok=0
+  else
+    base_ref="$(prune_resolve_base_ref "$root" 2>/dev/null || true)"
+  fi
+
+  local goal_list="$(mk_tmp)" research_list="$(mk_tmp)" path name verdict del_reason
+  prune_list_candidates "$goals_dir" "$goal_list"
+  prune_list_candidates "$research_dir" "$research_list"
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    name="$(basename "$path")"
+    case "$name" in
+      .*) continue ;;
+    esac
+    printf '%s\n' "$name" >> "$goal_names"
+  done < "$goal_list"
+
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    name="$(basename "$path")"
+    case "$name" in
+      .*) continue ;;
+    esac
+    printf '%s\n' "$name" >> "$research_names"
+  done < "$research_list"
+
+  if [ "$do_goals" -eq 1 ]; then
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      name="$(basename "$path")"
+      case "$name" in
+        .*) continue ;;
+      esac
+      if [ "$seen_only" -eq 1 ]; then
+        grep -Fxq -- "$name" "$only_file" || continue
+      fi
+      if [ ! -d "$path" ] && [ ! -L "$path" ]; then
+        continue
+      fi
+      verdict="$(prune_goal_decide "$root" "$store" "$name" "$git_ok" "$base_ref")"
+      printf '%s\n' "$name" >> "$processed_only"
+      case "$verdict" in
+        would-delete)
+          if [ "$mode" = "plan" ]; then
+            printf 'memory: prune goal %s would-delete\n' "$name"
+            w=$((w + 1))
+          else
+            if del_reason="$(prune_try_delete "$root" goal "$name" 2>/dev/null)"; then
+              printf 'memory: prune goal %s deleted\n' "$name"
+              d=$((d + 1))
+            else
+              [ -n "$del_reason" ] || del_reason="remove failed"
+              printf 'memory: prune goal %s failed %s\n' "$name" "$del_reason"
+              f=$((f + 1))
+            fi
+          fi
+          ;;
+        *)
+          printf 'memory: prune goal %s %s\n' "$name" "$verdict"
+          k=$((k + 1))
+          ;;
+      esac
+    done < "$goal_list"
+  fi
+
+  if [ "$do_research" -eq 1 ]; then
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      name="$(basename "$path")"
+      case "$name" in
+        .*) continue ;;
+      esac
+      if [ "$seen_only" -eq 1 ]; then
+        grep -Fxq -- "$name" "$only_file" || continue
+      fi
+      if [ ! -d "$path" ] && [ ! -L "$path" ]; then
+        continue
+      fi
+      verdict="$(prune_research_decide "$root" "$store" "$name" "$git_ok" "$base_ref")"
+      printf '%s\n' "$name" >> "$processed_only"
+      case "$verdict" in
+        would-delete)
+          if [ "$mode" = "plan" ]; then
+            printf 'memory: prune research %s would-delete\n' "$name"
+            w=$((w + 1))
+          else
+            if del_reason="$(prune_try_delete "$root" research "$name" 2>/dev/null)"; then
+              printf 'memory: prune research %s deleted\n' "$name"
+              d=$((d + 1))
+            else
+              [ -n "$del_reason" ] || del_reason="remove failed"
+              printf 'memory: prune research %s failed %s\n' "$name" "$del_reason"
+              f=$((f + 1))
+            fi
+          fi
+          ;;
+        *)
+          printf 'memory: prune research %s %s\n' "$name" "$verdict"
+          k=$((k + 1))
+          ;;
+      esac
+    done < "$research_list"
+  fi
+
+  if [ "$seen_only" -eq 1 ]; then
+    local only_name is_goal is_topic
+    while IFS= read -r only_name || [ -n "$only_name" ]; do
+      if grep -Fxq -- "$only_name" "$processed_only" 2>/dev/null; then
+        continue
+      fi
+      if prune_only_name_invalid "$only_name"; then
+        printf 'memory: prune only %s keep:not-found\n' "$only_name"
+        k=$((k + 1))
+        continue
+      fi
+      is_goal=0
+      is_topic=0
+      if grep -Fxq -- "$only_name" "$goal_names" 2>/dev/null; then
+        is_goal=1
+      fi
+      if grep -Fxq -- "$only_name" "$research_names" 2>/dev/null; then
+        is_topic=1
+      fi
+      if [ "$is_goal" -eq 1 ] && [ "$do_goals" -eq 1 ]; then
+        continue
+      fi
+      if [ "$is_topic" -eq 1 ] && [ "$do_research" -eq 1 ]; then
+        continue
+      fi
+      if [ "$is_goal" -eq 1 ] || [ "$is_topic" -eq 1 ]; then
+        printf 'memory: prune only %s keep:excluded-kind\n' "$only_name"
+        k=$((k + 1))
+        continue
+      fi
+      printf 'memory: prune only %s keep:not-found\n' "$only_name"
+      k=$((k + 1))
+    done < "$only_file"
+  fi
+
+  if [ "$mode" = "plan" ]; then
+    printf 'memory: prune plan %s would-delete, %s kept\n' "$w" "$k"
+  else
+    printf 'memory: prune %s deleted, %s kept, %s failed\n' "$d" "$k" "$f"
+  fi
+  if [ "$f" -gt 0 ]; then exit 4; fi
+  exit 0
+}
+
 # --- main ---
 [ $# -eq 0 ] && { usage >&2; exit 2; }
 
@@ -3104,7 +3535,7 @@ case "$sub" in
     usage
     exit 0
     ;;
-  add|index|search|show|redact|check|rm|capture|backfill) ;;
+  add|index|search|show|redact|check|rm|capture|backfill|prune) ;;
   *)
     usage >&2
     die 2 "unknown subcommand '$sub'"
@@ -3130,4 +3561,5 @@ case "$sub" in
   rm) cmd_rm "$@" ;;
   capture) cmd_capture "$@" ;;
   backfill) cmd_backfill "$@" ;;
+  prune) cmd_prune "$@" ;;
 esac

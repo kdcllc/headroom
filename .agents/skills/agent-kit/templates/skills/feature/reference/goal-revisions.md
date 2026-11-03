@@ -33,6 +33,8 @@ When unsure, treat as **material**. A Phase 1 decision change goes to the user f
 Log a `note` with the class and rationale. Targeted evaluations are capped at 3 cycles,
 like Phase 3.
 
+A surface the Phase 5 audit finds changed but not listed in `## Consumers` is an amendment: add the search, its hits and the row with evidence, re-run `_kit/trace-lint.sh`, then a targeted evaluation. It is additive; when a missed consumer needs an edit, it is a corrective task (`reference/corrective-tasks.md`).
+
 ## Cross-reference audit (after any renumbering)
 
 Mandatory before re-evaluation. Write results to `_memory/work/goals/<goal>/xref-audit.md`
@@ -45,7 +47,7 @@ Mandatory before re-evaluation. Write results to `_memory/work/goals/<goal>/xref
 3. Confirm each id exists as a task file. Hits that are artifact names under `spawns/` or
    `evidence/` are listed as non-task and resolved.
 4. Confirm every `reads`/`writes` path exists or is created by some task's `writes`.
-5. Confirm renamed symbols from `reference-sweep.md` match across tasks.
+5. Confirm every `changes` row in `goal.md` `## Consumers` whose evidence names `task NN` names a task that still exists after the renumbering; a row whose evidence is exactly `Phase 6` names no task and is skipped here (it stays valid only when the goal's `phases:` block sets `align_docs: true`).
 
 Report a TN/TP demonstration of the regex on a scratch sample (id list with a date
 fragment and a bad id) when auditing.

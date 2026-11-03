@@ -1,6 +1,9 @@
 ---
 name: memory-capture
-description: Turn captured chat transcripts into session-summary memory records for {{PROJECT_NAME}} — run after work sessions or periodically when idle sessions appear under _memory/raw/. Orchestrator coordinates capture, scope confirmation, distillation, evaluation, add, and check; never batch multiple sessions in one increment.
+description: Turn captured chat transcripts into session-summary memory records for {{PROJECT_NAME}} — run after work sessions or periodically when idle sessions appear under _memory/raw/. Orchestrator coordinates capture, scope confirmation, distillation, evaluation, add, and check; never batch multiple sessions in one increment.{{OPT_IN_MEMORY_CAPTURE_SUFFIX}}
+<!-- IF opt_in -->
+disable-model-invocation: true
+<!-- ENDIF opt_in -->
 ---
 
 # Memory Capture (Session Distillation Orchestrator)

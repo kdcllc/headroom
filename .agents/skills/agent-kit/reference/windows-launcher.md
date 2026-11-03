@@ -6,13 +6,17 @@ file as **raw bytes** (never through template reads that strip `\r`) to:
 - `skills/agent-kit/bin/emit.cmd`
 - `_kit/memory.cmd`
 - `_kit/log-spawn.cmd`
+- `_kit/trace-lint.cmd`
+- `_kit/kit-guard.cmd` (`flags.kit_guard` installs only)
+- `_kit/hook-log.cmd` (`flags.hook_telemetry` installs only)
+- `_loop/loop.cmd` (loop-enabled installs only)
 
 Each copy sits beside a same-named `.sh` and runs it through Git for Windows Bash.
 
 ## Purpose
 
-On Windows, cmd, Windows PowerShell 5.1, and pwsh can invoke kit Bash scripts without
-pwsh 7. The launcher discovers `bash.exe`, runs the sibling `.sh` with all arguments,
+On Windows, cmd, Windows PowerShell 5.1, and PowerShell 7 (`pwsh`) can invoke kit Bash
+scripts; PowerShell 7 is not required. The launcher discovers `bash.exe`, runs the sibling `.sh` with all arguments,
 and returns its exit code. Inside a harness that already runs Git Bash, agents should call
 `bash path/to/script.sh` directly instead of the `.cmd` wrapper.
 
@@ -21,6 +25,7 @@ and returns its exit code. Inside a harness that already runs Git Bash, agents s
 ```bat
 _kit\memory.cmd search foo
 skills\agent-kit\bin\emit.cmd --answers tests/agent-kit/fixtures/self-answers.json --root .
+_loop\loop.cmd 10
 ```
 
 Arguments with spaces are passed through unchanged. Path **arguments** to the script should
@@ -80,3 +85,21 @@ agent-kit: Git Bash not found - install Git for Windows from https://git-scm.com
   so git does not normalize line endings on checkout.
 - Copy `.cmd` launchers with a byte-preserving copy (`cp`, `Copy-Item -AsByteStream`, or
   equivalent). Do not read them through `read_file_raw_into` or other CR-stripping paths.
+- Loop-enabled emits also copy `templates/tools/bash-launcher.cmd` to `_loop/loop.cmd` beside
+  `_loop/loop.sh` (same byte-preserving rules as the other launchers).
+
+## Loop on Windows: known limitations
+
+The Windows CI leg (`windows-latest`, Git Bash) confirms both behaviors; the maintainer check
+`tests/agent-kit/templates/loop-windows.sh` reports them as `INFO` lines.
+
+1. **Orphaned native processes after kill or timeout** — stopping a slot (iteration timeout,
+   manual kill, or breaker-driven termination) under Git Bash leaves native Windows child
+   processes running (`claude.exe`, `codex.exe`, and similar). After a killed or timed-out run,
+   check Task Manager or your process list and end stray harness CLI processes.
+2. **`LOOP_CLI` and `.cmd` shims** — Git Bash does not resolve a bare `LOOP_CLI` command to a
+   `.cmd` shim such as `cursor-agent.cmd`. Workaround: name the shim with its suffix, for example
+   `LOOP_CLI="cursor-agent.cmd -p …"`. Caveat: a `.cmd` shim runs through `cmd.exe`, which cuts
+   an argument at its first newline and re-reads `"`, `&`, and `%` — the loop passes the whole
+   prompt as one argument (`"$p"` to the CLI), so prefer the CLI's native `.exe` (or its `node`
+   entry point) when one exists.

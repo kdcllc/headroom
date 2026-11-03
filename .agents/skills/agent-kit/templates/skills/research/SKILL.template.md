@@ -1,6 +1,9 @@
 ---
 name: research
-description: Research → Plan workflow for {{PROJECT_NAME}} topics needing external investigation — produces a research prompt, ingests the report, and yields an evaluated goal/task structure.
+description: Research → Plan workflow for {{PROJECT_NAME}} topics needing external investigation — produces a research prompt, ingests the report, and yields an evaluated goal/task structure.{{OPT_IN_RESEARCH_SUFFIX}}
+<!-- IF opt_in -->
+disable-model-invocation: true
+<!-- ENDIF opt_in -->
 ---
 
 # Research (Deep Research → Plan Orchestrator)

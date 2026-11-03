@@ -16,7 +16,7 @@ _memory/
     README.md            # status index of research briefs
     <topic>.md           # curated research brief
   work/                  # GITIGNORED
-    goals/<goal>/        # goal.md, NN-task.md, orchestration-log.md, spawns/, evidence/, memory-drafts/
+    goals/<goal>/        # goal.md, NN-task.md, progress.md, orchestration-log.md, spawns/, evidence/, memory-drafts/
     research/<topic>/    # prompt.md, report.md, recalled-memory.md, review.md, ingested
   loop/                  # TRACKED
     backlog.md
@@ -24,18 +24,20 @@ _memory/
     ESCALATIONS.md
     archive/ESCALATIONS-<YYYY-MM>.md
     breaker-state.json   # GITIGNORED (runtime)
+    ledger.jsonl         # GITIGNORED (runtime; one JSON line per reaped/killed slot)
+    attempts/            # GITIGNORED (runtime; per-story attempt dossiers)
   .index/                # GITIGNORED (derived)
   raw/                   # GITIGNORED
     <harness>/<session>.md   # redacted compact transcripts
     .captured · drafts/ · .distilled
 ```
 
-**Tracked:** `README.md`, `records/`, `quarantine/`, `research/`, `loop/` except `breaker-state.json`.
+**Tracked:** `README.md`, `records/`, `quarantine/`, `research/`, `loop/` except `breaker-state.json`, `ledger.jsonl`, and `attempts/`.
 Research briefs under `research/` are mutable (their status changes), orchestrator-owned,
 not records, and not scanned by `check`, `index`, or `search`.
-**Gitignored:** all of `work/`; `loop/breaker-state.json`; derived `.index/` and `raw/`.
+**Gitignored:** all of `work/` (finished folders under `work/` are removed by `prune` once their records are committed and merged); `loop/breaker-state.json`; `loop/ledger.jsonl` (loop run ledger); `loop/attempts/` (loop attempt dossiers); derived `.index/` and `raw/`.
 Every emit adds `.gitignore` `_memory/work/`, `_memory/.index/`, and `_memory/raw/`; loop
-emits also add `_memory/loop/breaker-state.json` and `.gitattributes`
+emits also add `_memory/loop/breaker-state.json`, `_memory/loop/ledger.jsonl`, `_memory/loop/attempts/`, and `.gitattributes`
 `_memory/loop/LEARNINGS.md merge=union` and `_memory/loop/ESCALATIONS.md merge=union`.
 `_memory/** text eol=lf` always.
 
@@ -126,8 +128,8 @@ After upgrading, run `_kit/memory.sh backfill --plan` to review import candidate
   still delete a quarantined file directly. Agents delete files under `records/` or
   `quarantine/` only with `_kit/memory.sh rm`, and only when explicitly tasked — never
   on their own initiative.
-- **Single writer tool.** Only `_kit/memory.sh` and `_kit/memory.ps1` create records
-  (including quarantine paths).
+- **Single writer tool.** Only `_kit/memory.sh` (through `_kit/memory.cmd` on Windows)
+  creates records (including quarantine paths).
 - **Loop mode policy.** In loop mode, only the integrator writes under `_memory/records/`
   and `_memory/quarantine/` for driver-dispatched work (protected paths + integrator step
   3b). Manual loop mode may add records in the story commit.
@@ -221,7 +223,9 @@ The orchestrator **recalls** before feature Phase 2 and research Phase 1: `_kit/
 search`, then up to five picks copied into worker context under a DATA fence (never to
 evaluator, qa-evaluator, or terminal). After a goal is approved, it **archives** one
 `goal-summary` plus optional `decision`/`pitfall` records; research archives one
-`research-ingest` after ingestion review. Loop manual mode adds records with `add`;
+`research-ingest` after ingestion review. Feature Phase 2 first runs
+`_kit/memory.sh prune --apply`, which deletes finished `work/` scratch folders whose
+records are committed and merged (see `prune` below). Loop manual mode adds records with `add`;
 driver-dispatched slots write `<outbox>/memory/*.md` proposals for the integrator.
 
 Durable, searchable **records** live under `records/` and `quarantine/`. `_memory/loop/LEARNINGS.md`
@@ -244,7 +248,7 @@ Run from the repo root (or pass `--root`). Output is tab-separated columns, in o
 **Score (grep engine, default).** For each search term: +3 when the folded term appears
 in the title or any tag; +1 for each body line that contains the folded term (per term,
 counted separately). Implementation: `score_file` / `meta_hit` in the search awk in
-`memory.sh`, `Grep-Score` in `memory.ps1`.
+`memory.sh`.
 
 **Ties (grep engine).** Equal scores sort by **id descending** (newest id first):
 `sort -k4,4nr -k1,1r`. With `--engine fts`, the same grep candidates are re-ranked by
@@ -288,13 +292,12 @@ Default `search` hides superseded rows (`legacy alpha` is absent until
 ## CLI
 
 Primary: `_kit/memory.sh …`. Windows outside Git Bash: `_kit\memory.cmd …` (Git for
-Windows required). `_kit/memory.ps1` (PowerShell 7.2+) remains as a helper for
-`loop.ps1` until loop twins retire. Behavior, messages, and exit codes match across
-the Bash and `.cmd` paths.
+Windows required). Behavior, messages, and exit codes match across the Bash script and
+its `.cmd` launcher.
 
 **Exit codes:** `0` ok · `2` usage/format · `3` gate failed (`check` only) · `4` missing
 root, file, id, or optional dependency · `5` quarantined. For `backfill`, only `0`, `2`,
-`4`, and `5` apply (`3` is never used).
+`4`, and `5` apply (`3` is never used). For `prune`, only `0`, `2`, and `4` apply.
 
 **Common:** every subcommand accepts `--root <dir>` (default: git repo root, else cwd).
 Store root is `<root>/_memory`. `--help` as the first argument, or right after the
@@ -303,11 +306,10 @@ stderr and exits 2. Usage errors reuse these existing messages (exit 2 unless no
 `memory: unknown flag '<flag>'`, `memory: unexpected argument '<arg>'`,
 `memory: flag '<flag>' needs a value`, `memory: repeated flag '<flag>'`.
 
-**Usage** (`memory.sh` and `memory.ps1` print this byte-identically, program name
-`memory.sh` included):
+**Usage** (`memory.sh` prints this; program name `memory.sh` included):
 
 ```
-usage: memory.sh <add|index|search|show|redact|check|rm|capture|backfill> [--root <dir>] ...
+usage: memory.sh <add|index|search|show|redact|check|rm|capture|backfill|prune> [--root <dir>] ...
   add    --kind <k> --title <t> --body <path> [--source <s>] [--tags <list>] [--supersedes <list>] [--harness <h>]
   index  [--root <dir>]
   search <term>... [--kind <list>] [--limit <n>] [--include-superseded] [--engine grep|fts]
@@ -317,12 +319,9 @@ usage: memory.sh <add|index|search|show|redact|check|rm|capture|backfill> [--roo
   rm     <id> [--root <dir>]
   capture [--harness cursor|claude|codex|all] [--from <dir>] [--idle-hours <n>] [--since <YYYY-MM-DD>] [--root <dir>]
   backfill [--plan|--apply] [--goals] [--research] [--escalations] [--only <name>] [--root <dir>]
+  prune  [--plan|--apply] [--goals] [--research] [--only <name>] [--root <dir>]
 exit: 0 ok · 2 usage/format · 3 gate failed · 4 missing root/file/id/dependency · 5 quarantined
 ```
-
-**PowerShell twin:** `memory.ps1` implements `add` (with redaction and tag rules),
-`index`, `search`, `show`, and `redact`; `check`, `rm`, `capture`, and `backfill` exit 2 with
-`memory: '<sub>' is bash-only; run bash _kit/memory.sh <sub> (Windows: _kit\memory.cmd <sub>)`.
 
 ### add
 
@@ -381,8 +380,7 @@ redact [--root <dir>]
 
 Reads stdin, writes redacted bytes to stdout (no body normalization). Stderr summary line
 when n > 0 (`memory: redacted <n> secret(s): <classes>`), exit 0. Any argument other than
-`--root` (and its value) → the generic usage messages above, exit 2. Implemented in both
-twins.
+`--root` (and its value) → the generic usage messages above, exit 2.
 
 ### check
 
@@ -485,8 +483,7 @@ Stdout per session: `memory: skipped <harness> <session> <reason>` or
 backfill [--plan|--apply] [--goals] [--research] [--escalations] [--only <name>] [--root <dir>]
 ```
 
-Bash-only (`memory.ps1 backfill` prints the bash-only pointer, exit 2). Deterministic,
-LLM-free back-fill of closed goals, opted-in research topics, and resolved escalations into
+Deterministic, LLM-free back-fill of closed goals, opted-in research topics, and resolved escalations into
 records via the existing `add` path (redaction, admission, dedupe). Identical inputs at the
 same git HEAD (or outside git, `commit: none`) yield byte-identical records.
 
@@ -609,6 +606,103 @@ sources that already have records:
 - **Escalations:** a human resolving an entry adds the line `- resolved: YYYY-MM-DD <decision>`
   inside the entry (entries start with `## <story-id>: <title>`, archived to
   `_memory/loop/archive/ESCALATIONS-<YYYY-MM>.md`).
+
+### prune
+
+```
+prune [--plan|--apply] [--goals] [--research] [--only <name>] [--root <dir>]
+```
+
+Deterministic deletion of finished goal and research scratch folders under gitignored
+`_memory/work/` once every record that holds their knowledge is committed and merged (see
+**Durable id.** below). Never writes, edits, or deletes anything else; in particular
+nothing under `records/`, `quarantine/`, `.index/`, `loop/`, `research/`, or `raw/`.
+
+**Flags.** `--plan` (default when neither is given) writes nothing; `--apply` deletes the
+folders the plan would delete; both → exit 2
+`memory: prune takes --plan or --apply, not both`. `--goals` and `--research` select kinds;
+when neither is given, both run; a repeated kind flag → the generic
+`memory: repeated flag '<flag>'`. `--only <name>` (repeatable) names goal folders and
+research topics (exact names); when any `--only` is given, unnamed candidates are not listed
+and not counted. A name matching only a kind excluded by the kind flags prints
+`memory: prune only <name> keep:excluded-kind`; a name matching no candidate of either kind
+— including any name that contains `/`, is `.` or `..`, or starts with `.` — prints
+`memory: prune only <name> keep:not-found`; both count as kept. `--only` values are only
+compared with candidate names, never used to build paths. Other flag errors use the generic
+usage messages above.
+
+**Durable id.** An id is durable when it is a valid record id
+(`^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$`) and its record file —
+`_memory/records/YYYY/MM/<id>.md` or `_memory/quarantine/<id>.md` — exists in the commit
+`HEAD` of the git work tree that contains the root **and**, when a **base ref** resolves,
+in the base ref's commit too. The base ref is the first of `refs/remotes/origin/HEAD`,
+`refs/remotes/origin/main`, `refs/remotes/origin/master` that resolves to a commit (local
+remote-tracking state only; `prune` never fetches); when none resolves, `HEAD` alone decides.
+A file that exists only in the working tree or is only staged is **not** durable; a file in
+`HEAD` but not in the base ref is not durable either, so a goal stays until its records are
+merged to the remote default branch (the PR step still reads every goal folder delivered on
+its branch).
+
+**Git gate.** When `git` is not on `PATH`, the root is not inside a git work tree, or
+`HEAD` does not resolve to a commit, every candidate prints `keep:no-git`, nothing is
+deleted, and the exit code is 0 (both modes).
+
+**Candidates.** Every direct child directory of `_memory/work/goals/` (kind `goal`) and of
+`_memory/work/research/` (kind `research`), in `LC_ALL=C` name order; names starting with
+`.` are not candidates. A missing `_memory/work/goals/` or `_memory/work/research/` directory
+simply yields no candidates of that kind; when `_memory/work/`, `_memory/work/goals/`, or
+`_memory/work/research/` is a symbolic link to a directory, its children are still listed
+(each then prints `keep:symlink` once the git gate passes).
+
+**Id extraction and per-id verdict** (shared by goals and research). Ids are every substring
+matching `[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}` in the given text (substring extraction such as
+`grep -oE`, not whitespace tokens, so `<id>;` and `(<id>)` count), in order of appearance.
+Each id in order: in neither the working tree nor `HEAD` → `keep:missing:<id>`; in the working
+tree but not in `HEAD` → `keep:uncommitted:<id>`; in `HEAD` but a base ref resolves and the
+file is not in it → `keep:unmerged:<id>`; the first failing id decides; all durable →
+`would-delete` (`--apply`: delete).
+
+**Goal decision**, first match wins: (1) git gate fails → `keep:no-git`; (2) the candidate,
+`_memory/work/goals/`, or `_memory/work/` is a symbolic link → `keep:symlink`; (3)
+`git ls-files` lists any tracked file under the candidate → `keep:tracked`; (4) no
+`orchestration-log.md` → `keep:no-log`; (5) the log has at least one **archive line** — a
+line matching `^### [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2} — `
+(em dash U+2014) that contains `ARCHIVED:` anywhere (body lines that are not `### `
+headings never count) — then only the **last** such line counts and its ids are extracted
+(**Id extraction and per-id verdict** above) from the text after the **last** `ARCHIVED:` on
+that line, so free-form notes and "Archive correction" lines parse; no ids → `keep:no-ids`;
+otherwise the per-id verdict; (6) no archive line → **source fallback**: the record and
+quarantine files in the working tree whose `source:` equals exactly `goal <g> (goal.md)`
+(the legacy top-level goal-path and `_memory/work/goals/…` labels do not count); none →
+`keep:not-archived`; otherwise the per-id verdict over their ids in `LC_ALL=C` path order.
+
+**Research decision**, first match wins: (1) git gate fails → `keep:no-git`; (2) the
+candidate, `_memory/work/research/`, or `_memory/work/` is a symbolic link → `keep:symlink`;
+(3) tracked file under the candidate → `keep:tracked`; (4) no `ingested` file →
+`keep:not-archived`; (5) ids extracted (**Id extraction and per-id verdict** above) from
+line 2 of `ingested` (trailing CR stripped); none → `keep:no-ids`; otherwise the per-id
+verdict.
+
+**Deletion** (`--apply` only): removes exactly `<root>/_memory/work/goals/<name>` or
+`<root>/_memory/work/research/<name>` recursively, never following symbolic links; when the
+folder still exists afterwards (or removal fails) the line is
+`memory: prune <kind> <name> failed <reason>` and the run continues.
+
+**Output and exit.** Order: goals, then research, then `only` lines (in the order given).
+`--plan`: `memory: prune <kind> <name> would-delete` or
+`memory: prune <kind> <name> keep:<reason>`; summary
+`memory: prune plan <w> would-delete, <k> kept`. `--apply`:
+`memory: prune <kind> <name> deleted`, keep lines as in plan, or the `failed` line; summary
+`memory: prune <d> deleted, <k> kept, <f> failed`. `<kind>` is `goal` or `research`. Exit 0;
+4 when any deletion failed; 2 on usage errors.
+
+**Workflow and limits.** The feature skill runs `prune --apply` once at the start of Phase 2,
+before recall and before the new goal folder exists, so a goal whose records are still
+uncommitted or not yet merged is always kept. Pruned goals no longer give `memory-capture`
+their orchestration-log timestamps, so sessions captured afterwards get tags without
+goal-folder hints. Repos with no `origin` remote-tracking default branch fall back to `HEAD`
+alone, so there a goal already committed on a branch that carries several goals can be pruned
+before the PR step reads it. Run `prune --plan` to preview.
 
 ### Raw session file format
 

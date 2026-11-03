@@ -150,6 +150,12 @@ schema/contract changes, anything risky.>
 - <How it was verified. Cycle-end gate is rung 3 of the test-ladder:
   {{FULL_TEST_COMMAND}}.>
 
+## Backlog (not fixed here)
+- B<n> (<source>): <finding>
+<One bullet per `open` row of each delivered goal's `follow-ups.md`; with more than one
+goal, write each bullet as `- <goal>/B<n> (<source>): <finding>`. Omit this section when
+there are no open rows.>
+
 ## Notes for reviewers
 <Optional: call-outs, follow-ups, open questions. Omit if empty.>
 
@@ -164,6 +170,18 @@ for **every goal delivered on this branch** (one PR may carry several goals). Wh
 any log contains `self-evaluation, not independent`, include `## Self-evaluated gates`
 in the draft with one bullet per gate (goal id, phase/task, verdict); otherwise omit
 that section entirely.
+
+Also read `_memory/work/goals/<goal>/follow-ups.md` for every goal delivered on this
+branch. List every row whose status is `open` under `## Backlog (not fixed here)` as
+`- B<n> (<source>): <finding>`, dropping the row's ` — <status>` suffix. With no open rows
+(or no `follow-ups.md`), omit the section entirely.
+Backlog rows are never described as fixed in the PR body; the section lists what this PR
+leaves open, and no other section claims one of those findings as resolved.
+The section belongs to the one approved body, so every forge branch (`github`,
+`azuredevops`, `gitlab`, `none`) carries it unchanged.
+
+When the PR carries more than one goal, prefix each row with its goal:
+`- <goal>/B<n> (<source>): <finding>`.
 
 Drafting rules: the Summary is outcomes and impact, never a commit log; derive content
 from the diff, not just commit subjects; omit empty sections; match the repo's tone.

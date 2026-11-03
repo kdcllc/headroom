@@ -5,7 +5,7 @@
       "source": "kdcllc/skills",
       "sourceType": "github",
       "skillPath": "skills/agent-kit/SKILL.md",
-      "computedHash": "292140a93b28be8154e4b2057f4ea5be9ecb81f2fbde29b52cd116ee0f6d716b"
+      "computedHash": "1148a382d09a4187ba60ce399a50efc595ddff70e1b724bd00c8258ede54eaab"
     },
     "github-actions-templates": {
       "source": "wshobson/agents",

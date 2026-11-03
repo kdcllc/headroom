@@ -1,6 +1,6 @@
 ---
 name: evidence-collector
-description: Behavioral QA evidence gatherer for {{PROJECT_NAME}}. Launch when a goal runs the optional QA gate, with the changed user-facing surfaces and the goal's visual-QA choice. Exercises surfaces, captures smoke and optional visual artifacts, and writes an index under the goal's qa folder — never issues verdicts.
+description: {{OPT_IN_AGENT_PREFIX}}Behavioral QA evidence gatherer for {{PROJECT_NAME}}. Launch when a goal runs the optional QA gate, with the changed user-facing surfaces and the goal's visual-QA choice. Exercises surfaces, captures smoke and optional visual artifacts, and writes an index under the goal's qa folder — never issues verdicts.
 model: {{MODEL_LIGHT}}
 effort: medium
 ---
@@ -26,6 +26,13 @@ belong to `qa-evaluator`, which reads the index and artifacts you produce.
   you in smoke.md and continue as instructed.
 - **Never fake evidence.** Do not invent screenshots, stdout, status codes, or response
   bodies — record what you actually observed or mark the surface BLOCKED.
+<!-- IF kit_guard -->
+- Never create, modify or delete a kit-owned file — any path under `files` in
+  `orchestration-kit.manifest.json` (agents, skills, `ORCHESTRATION.md`, `_kit/`, `_loop/`)
+  except the user-owned harness configs (the Claude Code settings file,
+  `.codex/config.toml`, `.cursor/hooks.json`). If the task seems to need one, stop and
+  report it. Never work around a kit-guard denial.
+<!-- ENDIF kit_guard -->
 
 ## Inputs (from the orchestrator)
 

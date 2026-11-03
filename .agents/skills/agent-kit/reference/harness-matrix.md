@@ -54,16 +54,50 @@ canonical templates are Claude-format:
 | Unattended mode | headless `claude -p` ⚠️ | Cloud Agents 🔎 — same nesting rule as Fresh-context row (spot-checked 2026-10-16); ⚠️ Cloud Agents-specific L1-only unattended cap not documented on spot-checked pages | Copilot coding agent on issues ⚠️ | `approval_policy: never` + `sandbox_mode` 🔎 |
 | Token usage exposure (headless CLI) | `claude -p --output-format json` → `usage` + `total_cost_usd` ✅ (verified 2026-09-03) | `agent -p --output-format json` → camelCase `usage` (`inputTokens` = uncached only) ✅ (verified 2026-09-03) | none documented ❌ | `codex exec --json` → `turn.completed.usage` incl. `reasoning_output_tokens` ✅ (verified 2026-09-03) |
 | Kit transcript capture (`_memory/raw/`, gitignored) | `_kit/memory.sh capture` scans `~/.claude/projects/<slug>/*.jsonl` under `$HOME` | `_kit/memory.sh capture` scans `~/.cursor/projects/<slug>/agent-transcripts/` | orchestrator-written fallback only (no export API) | `_kit/memory.sh capture --harness codex` best-effort on `~/.codex/sessions/`; docs-only skills tree |
-| Kit memory backfill (`backfill`, deterministic) | `_kit/memory.sh backfill --plan` / `--apply` (bash only; Windows outside Git Bash: `_kit\memory.cmd`) | same | same | same |
+| Kit memory backfill (`backfill`, deterministic) | `_kit/memory.sh backfill --plan` / `--apply` (Windows outside Git Bash: `_kit\memory.cmd`) | same | same | same |
+| Kit memory prune (`prune`, deterministic) | `_kit/memory.sh prune --plan` / `--apply` (Windows outside Git Bash: `_kit\memory.cmd`); feature Phase 2 runs `--apply` before recall | same | same | same |
 | Kit workflow layout (emit) | In-flight goals/research under gitignored `_memory/work/`; loop backlog/ledgers under tracked `_memory/loop/` (`backlog.md` seed). Legacy top-level `_goals/` / `_research/` move whenever emit finds them (`git mv` when tracked). | same | same | same |
 | Concurrent subagent spawns (ready groups) | 🔎 documented — code.claude.com/docs/en/sub-agents § Run parallel research (spot-checked 2026-10-16): "For independent investigations, spawn multiple subagents to work simultaneously"; § Concurrent subagent limit: default 20 running, spawning past it fails with `Concurrent subagent limit reached` (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, v2.1.217+); subagents share the checkout unless `isolation: worktree` — kit runs ready groups | 🔎 documented — cursor.com/docs/subagents § Parallel execution (spot-checked 2026-10-16): "Agent sends multiple Task tool calls in a single message, so subagents run simultaneously"; same page warns subagents share the parent checkout and concurrent edits can overwrite each other; supporting local observation (not ✅): concurrent worktree-less writers observed in this repo's own runs; nesting per Fresh-context row (spot-checked 2026-10-16); ⚠️ Cloud Agents-specific L1-only cap not documented — concurrency there unverified — kit runs ready groups | ⚠️ unverified (`runSubagent` stateless; concurrency not verified) — kit tries parallel ready groups, falls back to sequential on concurrency error | ⚠️ unverified — reserved `[agents]` names `max_concurrent_threads_per_session`, `max_threads` only (verified 2026-08-21); behavior inferred, not verified — kit tries parallel ready groups, falls back to sequential on concurrency error |
 | Degraded spawn conditions (model pin rejected / no spawn tool) | ⚠️ not documented as a degraded condition; nesting is capped by `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (see Fresh-context subagents row) — kit falls back to degraded mode if it happens | 🔎 spot-checked 2026-10-16 — cursor.com/docs/subagents: "You can use subagents in the editor, CLI, and Cloud Agents"; model config honors frontmatter `model` with admin/plan/Max-Mode fallbacks ("In these cases, Cursor falls back to a compatible model"); "Cloud subagents … follow the same model and capability rules as other Cloud Agents"; spawn can fail 🔎 — "a subagent launched by another subagent can't launch further ones" and "Nested launches also need Task tool access in the current mode, and hooks or tool policies can block spawning"; cursor.com/docs/cloud-agent Models: "Cloud Agents use a curated selection of models"; ⚠️ not documented on those pages whether Cloud Agents always ignore custom `model` pins or run as the parent model; ⚠️ no Cloud-Agent-specific L1 nesting limit documented on spot-checked pages — kit: see degraded mode (model pin rejected → inherit; no spawn tool → self-performed roles, disclosed gates) | ⚠️ not documented as a degraded condition; a `model` stronger than the parent refuses to run (see Per-agent model pin row) and subagent nesting is off unless `chat.subagents.allowInvocationsFromSubagents` is set (see Fresh-context subagents row) — kit falls back to degraded mode if it happens | ⚠️ not documented — kit falls back to degraded mode if it happens |
 
+### Opt-in (`flags.opt_in`) — verified 2026-10-27
+
+Description-scoped delegation is guidance the model follows, not an enforced gate (🔎).
+
+| Harness | Support | Notes |
+|---|---|---|
+| Claude Code | ✅ full | Skill `disable-model-invocation: true` on orchestrator skills; agent descriptions scoped via template prefix. `CLAUDE.md` orchestration pointer is a user file — unchanged. |
+| Cursor | ✅ full | Same `disable-model-invocation` key (skill translation); kit-owned `.cursor/rules/orchestration.mdc` rewritten to opt-in wording on upgrade. |
+| Copilot (VS Code) | ✅ full | `.github/skills/*/SKILL.md` and `.github/agents/feature.agent.md` carry the flag; `.agent.md` descriptions scoped. `.github/copilot-instructions.md` pointer unchanged. |
+| OpenAI Codex | 🔎 partial | No kit skills tree; `[agents.*]` descriptions scoped only when emit writes agent tables (new install). Existing `.codex/config.toml` with the kit marker is never rewritten. `AGENTS.md` pointer unchanged; emit warns on stderr. |
+
+### Kit-file guard (`flags.kit_guard`) — verified 2026-10-27
+
+Agent edit hooks are enforced by the harness (✅ per vendor hook docs); path-field parsing for Cursor `Write`/`Delete` is 🔎 (guard checks `file_path`, `notebook_path`, `path`, `target_file`).
+
+| Harness | Edit hook | Check + rule text |
+|---|---|---|
+| Claude Code | ✅ `PreToolUse` in `.claude/settings.json`; exit **2** blocks (code.claude.com/docs/en/hooks) | ✅ ORCHESTRATION.md item 4 |
+| Cursor | ✅ `preToolUse` in `.cursor/hooks.json`; exit **2** denies (guard prints JSON `permission: deny`); an exit-**0** reply that is not valid JSON blocks, so guard allow paths print `{"permission":"allow"}`; matcher `Write|Delete` ✅ (cursor.com/docs/agent/hooks). Cursor loads Claude Code hooks from `.claude/settings.json` too ✅ — dual-harness may run the guard twice; reply format for third-party hooks 🔎 (`hook claude` detects Cursor caller JSON) | same |
+| Copilot (VS Code) | ⚠️ agent hooks Preview — not used by this kit | ✅ `emit.sh --check`; partial warning on emit |
+| OpenAI Codex | — no edit hook | ✅ `emit.sh --check`; partial warning on emit |
+
+All harnesses: hooks cover agent edit tools, not shell or human edits; `check` detects those. Manifest and hook config files are user-writable exclusions — CI `check` is the backstop.
+
+### Hook telemetry (`flags.hook_telemetry`) — verified 2026-10-29
+
+Telemetry only: the hooks observe stops and never steer. Hook events and config shapes are documented by the vendors (✅ per vendor hook docs, not the top legend's 3-vote verification); 🔎 marks an unverified point. The hook configs are written only when the config file is absent; an existing file is left untouched and emit prints a merge snippet.
+
+- **Claude Code:** ✅ per vendor hook docs: `Stop` + `SubagentStop` + `StopFailure` in `.claude/settings.json`, each with a guarded command (`test -f … && bash … hook claude || true`), so it stays silent when `_kit/` is missing (fresh clone) (code.claude.com/docs/en/hooks). `StopFailure` fires when a turn ends on an API error and is logging-only: the docs give it no decision control and say it runs for notification and logging purposes only (spot-checked 2026-10-30).
+- **Cursor:** ✅ per vendor hook docs: `stop` + `subagentStop` with `loop_limit: 1` in `.cursor/hooks.json` (cursor.com/docs/agent/hooks), each with the guarded command `test -f _kit/hook-log.sh && bash _kit/hook-log.sh hook cursor || echo '{}'`, so a fresh clone without `_kit/` answers `{}` instead of failing the hook. 🔎 Cursor's hook shell on Windows is unverified: the guard assumes a POSIX shell (`test`, `&&`, `||`). Cursor also loads Claude Code hooks from `.claude/settings.json` ✅ per vendor hook docs, so on a dual install the claude hook skips a Cursor caller and Cursor logs only through its native hook.
+- **Copilot:** 🔎 partial, no hook. Copilot may run repository `.claude/settings.json` hooks when its agent hooks are enabled (**documented**: code.visualstudio.com/docs/copilot/customization/hooks; numbered fact 8 under "Addendum 2026-10-27 — Cursor hook behavior"), and those runs log under harness `claude` only when `$CLAUDE_PROJECT_DIR` is set under Copilot 🔎 (unconfirmed, numbered fact 9 under the same addendum); if it is unset, the guarded command's `test -f` fails and nothing is logged. 🔎 That assumes Copilot runs the hook command in a POSIX shell (`test`, `&&`, `||`); its hook shell, notably on Windows, is unverified. Emit warns.
+- **Codex:** 🔎 partial, no hook. Emit warns.
+
 Windows note: per-harness CLI availability on Windows is unverified — the loop
 drivers assume the harness CLI runs natively where invoked. **Kit tools** (`bin/emit.*`,
-`_kit/memory.*`, `_kit/log-spawn.*`) require **Git for Windows** when invoked from cmd
+`_kit/memory.*`, `_kit/log-spawn.*`, `_kit/trace-lint.*`, `_kit/kit-guard.*` on `flags.kit_guard` installs, `_kit/hook-log.*` on `flags.hook_telemetry` installs, and `_loop/loop.cmd` on loop installs) require **Git for Windows** when invoked from cmd
 or PowerShell via the `.cmd` launchers; inside Git Bash, call the `.sh` scripts with
-`bash` directly ([windows-launcher.md](windows-launcher.md)).
+`bash` directly ([windows-launcher.md](windows-launcher.md)). Loop-specific Windows caveats are in [windows-launcher.md § Loop on Windows: known limitations](windows-launcher.md#loop-on-windows-known-limitations).
 
 ## Friction points every emitter must respect
 
@@ -220,8 +254,65 @@ it as secondhand or unconfirmed.
 | Claude Code subagent `omitClaudeMd: true` (v2.1.271+) skips user/project/local CLAUDE.md; not adopted — target projects' CLAUDE.md carries rules workers need | ✅ | code.claude.com/docs/en/sub-agents |
 | Claude Code subagent `mcpServers` frontmatter (named or inline) | ✅ | code.claude.com/docs/en/sub-agents |
 | Cursor hooks receive `transcript_path` (null when transcripts are disabled) | ✅ | cursor.com/docs/agent/hooks |
-| Cursor cloud agents run project `.cursor/hooks.json` hooks for `stop`, `afterAgentResponse`, `subagentStop`, `preCompact`; not `sessionStart`, `sessionEnd`, MCP-execution hooks, or user-level `~/.cursor/hooks.json` | ✅ | cursor.com/docs/agent/hooks § Cloud agent support |
+| Cursor cloud agents run project `.cursor/hooks.json` hooks for `stop`, `afterAgentResponse`, `subagentStop`, `preCompact`; not `sessionStart`, `sessionEnd`, MCP-execution hooks, or user-level `~/.cursor/hooks.json` | ✅ | cursor.com/docs/agent/hooks § Cloud agent support — superseded by the 2026-10-27 addendum (Cursor hook behavior) |
 | Cursor transcripts: `~/.cursor/projects/<slug>/agent-transcripts/` JSONL (format undocumented) | ✅ observed / 💬 format | local inspection; community parsers |
 | Cursor persistent agent stores: undocumented; mount locally on tmpfs (`/run/user/<uid>/cursor_agent_stores/…`); never a kit target | ✅ observed | _memory/research/agent-memory-store.md § Load-bearing conclusions item 1 |
 | Copilot Memory: preview since 2026-01-15, repo-scoped, 28-day unused expiry, no export API; VS Code memory tool local `/memories/` (preview) | 🔎 | docs.github.com, code.visualstudio.com (per report) |
 | Codex memories: `[features] memories = true`, `~/.codex/memories/`, per-user; hooks include `SessionEnd`, `Stop`, `PreCompact` | ⚠️ | developers.openai.com (secondhand per report) |
+
+## Addendum 2026-10-27 — Cursor hook behavior
+
+Ingested from the gate-hardening research (public forum threads and docs pages are cited per fact), accessed 2026-10-27.
+With `flags.kit_guard` (2.2.0) the kit installs edit-blocking hooks for Claude Code (`.claude/settings.json`) and Cursor (`.cursor/hooks.json`).
+The facts below inform those hooks, optional user hooks and any future hook goal.
+Marks follow **this addendum's** legend, which differs from the top legend:
+
+- **staff-confirmed**: a Cursor staff forum reply.
+- **documented**: cursor.com docs, or the vendor docs the fact names.
+- **community-reported**: forum or issue reports.
+- **unconfirmed**: a single field observation.
+
+1. A `preToolUse` or `beforeShellExecution` deny delivers only `user_message` to the agent, not `agent_message`, although the docs still say `agent_message` is fed back to the agent.
+   **staff-confirmed**: Cursor forum thread 174283 (staff reply 2026-10-12; desktop 3.23.23).
+   Cloud is not verified.
+2. Hooks do not run during a cloud agent's read-only early turns; they start once the agent has a writable environment.
+   **documented**: cursor.com/docs/agent/hooks.
+   Cloud agents only.
+3. Cursor loads Claude Code hooks (third-party configs are on by default), with `loop_limit` `null` for them; Cursor's own default is 5.
+   **documented**: cursor.com/docs/agent/hooks.
+4. For permission hooks (`preToolUse` among them), invalid JSON blocks the action, and crashes, timeouts and non-zero exits other than 2 fail open unless `failClosed: true`.
+   **documented**: cursor.com/docs/agent/hooks.
+   Whether `failClosed` blocks a crashed `stop` or `subagentStop` hook is **unconfirmed**: the docs define `failClosed` as blocking the action, and Cursor staff in thread 161869 call the IDE stop invocation fire-and-forget.
+5. A Task launch without a `model` runs on the parent's model, and an unrecognized frontmatter model silently falls back to the parent's.
+   **community-reported**, staff-acknowledged: Cursor forum threads 160840 and 156736.
+6. `subagentStop` `summary`, `modified_files` and `agent_transcript_path` are often empty or null.
+   **community-reported**: Cursor forum thread 166681.
+7. `loop_count` resetting on each user prompt, hooks firing in a named environment with several workspace roots, and a resumed Task skipping `subagentStart`.
+   **unconfirmed**: no public thread or docs page confirms any of the three.
+8. Copilot reads repository `.claude/settings.json` hooks and runs hooks from every source together, so a hook there can run in Claude Code, Cursor and Copilot.
+   **documented**: code.visualstudio.com/docs/copilot/customization/hooks.
+9. Interaction with `kit_guard` (2.2.0).
+   The entry "Kit-file guard (`flags.kit_guard`) — verified 2026-10-27" above states the per-harness hook design; this fact adds what facts 3, 4 and 8 imply for it and does not restate that entry.
+   - **Cursor, double run.** On an install with both Claude Code and Cursor, Cursor also loads the Claude-format hook from `.claude/settings.json` (fact 3), so the guard can run twice per edit.
+     The double run is a **documented** consequence, not yet observed: Cursor runs all matching hooks from every source (cursor.com/docs/agent/hooks) and loads the Claude Code hooks (fact 3).
+   - **Cursor, reply format.** The guard detects a Cursor caller and answers in Cursor's JSON format (`templates/tools/kit-guard.sh`; the Kit-file guard entry above), so fact 4's invalid-JSON rule does not apply to it.
+     That is the documented design.
+     How reliable the Cursor-caller detection is stays **unconfirmed**.
+   - **Copilot.** On an install with both Claude Code and Copilot, Copilot may also run the guard's Claude hook from `.claude/settings.json` (fact 8) when its agent hooks are enabled, although the Kit-file guard entry says agent-kit doesn't use Copilot hooks.
+     Two things are **unconfirmed**: whether `$CLAUDE_PROJECT_DIR` is set under Copilot, and how the guard's `claude` mode handles Copilot's input.
+     For PascalCase events, Copilot sends snake_case fields and reports Claude tool names (docs.github.com/en/copilot/reference/hooks-configuration, "VS Code compatible format" and "Claude-format matchers").
+   - **Copilot fails closed.** Copilot `preToolUse` command hooks deny the tool call on a crash or non-zero exit (**documented**: docs.github.com/en/copilot/reference/hooks-reference).
+     So if `$CLAUDE_PROJECT_DIR` is unset under Copilot, the guard's Claude hook could deny every matched edit.
+     This consequence is **unconfirmed**; it is stated as a risk to check.
+     Command hook timeouts are fail-open: the action proceeds through the normal permission flow, not an outright allow (**documented**: docs.github.com/en/copilot/reference/hooks-reference).
+   - Fact 8 holds for Copilot CLI and VS Code.
+     Copilot cloud agent loads only `.github/hooks/*.json` (**documented**: docs.github.com/en/copilot/reference/hooks-reference).
+10. Cursor cloud agents run `preToolUse`, `beforeShellExecution`, `subagentStop`, `stop` and other project hooks once the environment is writable; `sessionStart` is deferred.
+    **documented**: cursor.com/docs/agent/hooks, § Cloud agent support.
+    This restates the current list that the 2026-10-08 cloud-agent row now points to.
+
+Facts 1, 3, 4 and 8–10 bear on the `kit_guard` hooks directly.
+Fact 2 limits every Cursor cloud-agent hook until the environment is writable.
+Facts 5–7 concern model, subagent and loop hooks the kit does not install.
+
+Re-check these facts by 2027-01-27: Cursor's hook behavior changed several times in 2026, so re-test per Cursor version.

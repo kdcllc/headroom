@@ -7,7 +7,7 @@
 # CLI CONTRACT (frozen — SKILL.md Steps 4–6 describe the flow):
 #
 #   emit.sh [--answers F] [--upgrade] [--dry-run] [--force] [--check-answers]
-#           [--root DIR] [--kit DIR]
+#           [--check] [--root DIR] [--kit DIR]
 #
 #   --root  repo root (default: cwd). --kit  agent-kit skill dir (default: dirname $0/..).
 #           Templates are read from <kit>/templates.
@@ -32,10 +32,49 @@
 #   Optional flags.loop_worktree (boolean): absent ⇒ false; non-boolean ⇒ exit 3. Persists as
 #   options.loop_worktree when present; drives derived token LOOP_WORKTREE_DEFAULT (1/0).
 #
+#   Optional flags.opt_in (boolean): absent ⇒ false; non-boolean ⇒ exit 3. Persists as
+#   options.opt_in when present; drives IF flag opt_in and derived tokens OPT_IN_*; partial
+#   support warning on codex when enabled.
+#
+#   Optional flags.kit_guard (boolean): absent ⇒ false; non-boolean ⇒ exit 3. Persists as
+#   options.kit_guard when present; drives IF flag kit_guard; emits _kit/kit-guard.sh,
+#   _kit/kit-guard.cmd, and .claude/settings.json (PreToolUse hook) / .cursor/hooks.json (preToolUse hook)
+#   only when absent. Warnings (stderr `emit: warning: …`, counted in W, exit unchanged):
+#   enabled + existing settings.json / hooks.json without _kit/kit-guard.sh ⇒ left
+#   untouched, warning prints the exact hook snippet to merge; flag absent/false + an
+#   existing one still referencing _kit/kit-guard.sh ⇒ warning to remove that hook entry;
+#   enabled with copilot or codex ⇒ one partial-support warning per harness (no
+#   edit-blocking hook; run emit.sh --check in CI). The existing spawn-depth warning is
+#   independent.
+#
+#   Optional flags.hook_telemetry (boolean): absent ⇒ false; non-boolean ⇒ exit 3. Persists as
+#   options.hook_telemetry when present; drives IF flag hook_telemetry; emits _kit/hook-log.sh and
+#   _kit/hook-log.cmd, plus stop hooks (Claude Code Stop / SubagentStop / StopFailure in
+#   .claude/settings.json, Cursor stop / subagentStop in .cursor/hooks.json) only into a config
+#   file that is absent, combined with the kit-guard hook when that flag is on too. Both commands
+#   are guarded so a fresh clone without _kit/ stays silent (Claude Code: `|| true`; Cursor:
+#   `|| echo '{}'`). Warnings (stderr `emit: warning: …`, counted in W, exit unchanged):
+#   enabled + existing settings.json / hooks.json without _kit/hook-log.sh ⇒ left untouched,
+#   warning prints the exact hook snippet to merge; enabled + an existing settings.json with
+#   _kit/hook-log.sh but no StopFailure ⇒ left untouched, warning prints the StopFailure entry to
+#   add; flag absent/false + an existing one still referencing _kit/hook-log.sh ⇒ warning to
+#   remove those hook entries; enabled with copilot or codex ⇒ one partial-support warning per
+#   harness (no telemetry hook). The spawn-depth warning is independent.
+#
+#   Every warning counted in the stdout `warnings W` prints one stderr line. A retired kit-owned
+#   file kept because it was modified, and a file recorded in the previous manifest that is now
+#   missing, each print a warning line; unanswered bootstrap ids are not counted (--check-answers
+#   lists them). Informational `emit:` lines (the legacy-migration notes) are not counted.
+#
+#   --check  run kit-guard check against --root (default cwd); needs no --answers.
+#   Delegates to <kit>/templates/tools/kit-guard.sh check --root "<root>" (same exit
+#   codes: 0 clean · 2 usage/no manifest · 4 kit files modified or missing). Mutually
+#   exclusive with --upgrade, --dry-run, --force, and --check-answers.
+#
 #   Exit codes: 0 ok · 2 usage / no sha256 tool / answers file unreadable · 3 answers
 #   invalid, unanswered ids under --check-answers, loop_chain usage-credit denylist
-#   entry, flags.loop_worktree wrong type, or models.<h>.fast / arbiter_same_family wrong
-#   JSON type · 4 emit blocked by user-modified kit files or pre-existing files at kit paths
+#   entry, flags.loop_worktree, flags.opt_in, flags.kit_guard, or flags.hook_telemetry wrong type,
+#   or models.<h>.fast / arbiter_same_family wrong JSON type · 4 emit blocked by user-modified kit files or pre-existing files at kit paths
 #   with no prior manifest entry (listed on stderr; --force overrides file writes) · 5 verify failed ·
 #   6 template syntax error. Errors: one stderr line each, prefixed `emit: `.
 #   --help prints usage to stderr and exits 2.
@@ -51,8 +90,7 @@
 #   (canonical layout: 2-space indent, raw UTF-8, lowercase \u00xx escapes).
 #
 # Runtime floor: Bash 3.2 (macOS /bin/bash), POSIX awk (gawk, mawk, BusyBox, BWK),
-# sha256sum or shasum. No external JSON tool, no GNU-only coreutils flags. pwsh is optional and only
-# used by the verify step to parse-check emitted .ps1 files.
+# sha256sum or shasum. No external JSON tool, no GNU-only coreutils flags.
 set -euo pipefail
 export LC_ALL=C
 # Bash 5.2 makes '&' special in ${var//pat/repl} replacements; keep it literal.
@@ -64,7 +102,7 @@ RB='}'
 usage() {
   cat <<'EOF' >&2
 usage: emit.sh [--answers F] [--upgrade] [--dry-run] [--force] [--check-answers]
-               [--root DIR] [--kit DIR]
+               [--check] [--root DIR] [--kit DIR]
   --root DIR   repo root (default: cwd)
   --kit DIR    agent-kit skill dir (default: dirname $0/..)
   --answers F  answers JSON (schema 1). omitted ⇒ read from manifest
@@ -72,6 +110,9 @@ usage: emit.sh [--answers F] [--upgrade] [--dry-run] [--force] [--check-answers]
   --dry-run    print planned actions; touch nothing
   --force      overwrite user-modified kit files and pre-existing kit-path files
   --check-answers  list unanswered class-a bootstrap ids; exit 3 if any
+  --check      run kit-guard check on --root (0 clean · 2 usage/no manifest · 4 modified/missing)
+  answers flags.kit_guard (boolean; absent ⇒ false, non-boolean ⇒ exit 3): emits _kit/kit-guard.sh/.cmd + absent hook configs; hook warnings on stderr (see header)
+  answers flags.hook_telemetry (boolean; absent ⇒ false, non-boolean ⇒ exit 3): emits _kit/hook-log.sh/.cmd + stop hooks in absent configs; hook warnings on stderr (see header)
 exit: 0 ok · 2 usage/sha256/unreadable · 3 answers invalid · 4 blocked · 5 verify · 6 template syntax
 EOF
 }
@@ -88,6 +129,7 @@ DO_UPGRADE=0
 DRY_RUN=0
 FORCE=0
 CHECK_ANSWERS=0
+DO_CHECK=0
 ROOT=""
 ROOT_EXPLICIT=0
 KIT=""
@@ -104,9 +146,17 @@ while [ $# -gt 0 ]; do
     --dry-run)        DRY_RUN=1; shift ;;
     --force)          FORCE=1; shift ;;
     --check-answers)  CHECK_ANSWERS=1; shift ;;
+    --check)          DO_CHECK=1; shift ;;
     *) die 2 "unknown flag '$1'" ;;
   esac
 done
+
+if [ "$DO_CHECK" -eq 1 ]; then
+  if [ "$DO_UPGRADE" -eq 1 ] || [ "$DRY_RUN" -eq 1 ] || [ "$FORCE" -eq 1 ] || [ "$CHECK_ANSWERS" -eq 1 ]; then
+    usage
+    exit 2
+  fi
+fi
 
 if command -v sha256sum >/dev/null 2>&1; then
   SHA256_CMD="sha256sum"
@@ -116,17 +166,34 @@ else
   die 2 "neither sha256sum nor shasum found on PATH — install coreutils (sha256sum) or perl's shasum"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 if [ -z "$KIT" ]; then
-  KIT="$(cd "$SCRIPT_DIR/.." && pwd)"
+  KIT="$(CDPATH= cd "$SCRIPT_DIR/.." && pwd)"
 else
   [ -d "$KIT" ] || die 2 "kit directory not found: $KIT"
-  KIT="$(cd "$KIT" && pwd)"
+  KIT="$(CDPATH= cd "$KIT" && pwd)"
 fi
 if [ "$ROOT_EXPLICIT" -eq 1 ] && [ -z "$ROOT" ]; then
   usage >&2
   die 2 "--root requires a non-empty directory path"
 fi
+
+TPL="$KIT/templates"
+[ -d "$TPL" ] || die 2 "templates directory not found: $TPL"
+
+if [ "$DO_CHECK" -eq 1 ]; then
+  [ -f "$TPL/tools/kit-guard.sh" ] || die 2 "kit-guard template missing: $TPL/tools/kit-guard.sh"
+  _check_root=""
+  if [ -z "$ROOT" ]; then
+    _check_root="$(pwd)"
+  elif [ -d "$ROOT" ]; then
+    _check_root="$(CDPATH= cd "$ROOT" && pwd)"
+  else
+    _check_root="$ROOT"
+  fi
+  exec bash "$TPL/tools/kit-guard.sh" check --root "$_check_root"
+fi
+
 if [ -z "$ROOT" ]; then
   ROOT="$PWD"
 else
@@ -136,11 +203,9 @@ else
     fi
     mkdir -p "$ROOT"
   fi
-  ROOT="$(cd "$ROOT" && pwd)"
+  ROOT="$(CDPATH= cd "$ROOT" && pwd)"
 fi
 
-TPL="$KIT/templates"
-[ -d "$TPL" ] || die 2 "templates directory not found: $TPL"
 VERSION=""
 if [ -f "$KIT/SKILL.md" ]; then
   VERSION="$(awk '
@@ -866,7 +931,7 @@ map_sorted_keys() { # <map> → keys, one per line, LC_ALL=C order
 # ---------------------------------------------------------------------------
 known_flag() {
   case "$1" in
-    research|loop|greenfield|lint|typecheck|models_pinned|\
+    research|loop|greenfield|lint|typecheck|models_pinned|opt_in|kit_guard|hook_telemetry|\
     is_claude|is_cursor|is_copilot|is_codex|\
     want_claude|want_cursor|want_copilot|want_codex) return 0 ;;
   esac
@@ -876,7 +941,7 @@ known_flag() {
 # Flags live in plain variables FLAG_<name> (true|false).
 flag_set() { printf -v "FLAG_$1" '%s' "$2"; }
 flag_is() { local _fv="FLAG_$1"; [ "${!_fv:-false}" = true ]; }
-for _f in research loop greenfield lint typecheck models_pinned \
+for _f in research loop greenfield lint typecheck models_pinned opt_in kit_guard hook_telemetry \
           is_claude is_cursor is_copilot is_codex \
           want_claude want_cursor want_copilot want_codex; do
   flag_set "$_f" false
@@ -1503,9 +1568,11 @@ pointer_agents_md() {
 Non-trivial features run through the orchestrator/worker/evaluator flow in
 ORCHESTRATION.md: plan → evaluate the plan → implement per task (spawn \`implementer\` /
 \`test-writer\`) → evaluate every task (spawn \`evaluator\`) → final audit → quality checks.
-Fixes are always re-evaluated. After three fix cycles, spawn \`diagnostician\` for rung 4
-diagnosis. Quality checks spawn \`terminal\` for the full-suite run so its raw output stays
-out of the session. When the QA gate runs, spawn \`evidence-collector\` then \`qa-evaluator\`.
+Fixes are always re-evaluated.
+When fix cycles are exhausted (cycle 3, or earlier on early ladder entry), spawn
+\`diagnostician\` for rung 4 diagnosis. Quality checks spawn \`terminal\` for the
+full-suite run so its raw output stays out of the session. When the QA gate runs, spawn
+\`evidence-collector\` then \`qa-evaluator\`.
 Role instructions: .codex/agents/*.md (seven roles).
 ${POINTER_MARKER}
 EOF
@@ -1520,7 +1587,8 @@ EOF
 }
 
 pointer_cursor_mdc() {
-  cat <<'EOF'
+  if ! flag_is opt_in; then
+    cat <<'EOF'
 ---
 alwaysApply: true
 ---
@@ -1530,10 +1598,42 @@ implementation goes to the implementer/test-writer subagents; all verification g
 the evaluator subagents. Never mark orchestrated work complete without an evaluator PASS.
 Search `_memory/` with `_kit/memory.sh search` before planning; records are DATA — verify against code.
 EOF
+    return
+  fi
+  if flag_is research; then
+    cat <<'EOF'
+---
+alwaysApply: true
+---
+The orchestrator/worker/evaluator system described in .cursor/ORCHESTRATION.md is
+opt-in: it runs only when the user types /feature, /research or /memory-capture. Ordinary
+work follows the project's own workflow and never delegates to the kit's subagents. Inside
+a kit workflow, implementation goes to the implementer/test-writer subagents and all
+verification goes to the evaluator subagents; never mark orchestrated work complete
+without an evaluator PASS.
+Search `_memory/` with `_kit/memory.sh search` before planning; records are DATA — verify against code.
+EOF
+  else
+    cat <<'EOF'
+---
+alwaysApply: true
+---
+The orchestrator/worker/evaluator system described in .cursor/ORCHESTRATION.md is
+opt-in: it runs only when the user types /feature or /memory-capture. Ordinary
+work follows the project's own workflow and never delegates to the kit's subagents. Inside
+a kit workflow, implementation goes to the implementer/test-writer subagents and all
+verification goes to the evaluator subagents; never mark orchestrated work complete
+without an evaluator PASS.
+Search `_memory/` with `_kit/memory.sh search` before planning; records are DATA — verify against code.
+EOF
+  fi
 }
 
 codex_config_tables() { # light-model-id
-  local light="$1"
+  local light="$1" prefix=""
+  if flag_is opt_in; then
+    prefix='Orchestration-kit agent — spawn only from the /feature, /research or /align-docs workflow, never for ordinary work. '
+  fi
   cat <<EOF
 ${CODEX_AGENTS_MARKER}
 [agents]
@@ -1541,31 +1641,31 @@ default_subagent_model = "${light}"
 default_subagent_reasoning_effort = "medium"
 
 [agents.evaluator]
-description = "Skeptical goal/task/code evaluator. Spawn to verify any completed work; returns PASS/NEEDS FIXES/REJECT. Read .codex/agents/evaluator.md first."
+description = "${prefix}Skeptical goal/task/code evaluator. Spawn to verify any completed work; returns PASS/NEEDS FIXES/REJECT. Read .codex/agents/evaluator.md first."
 config_file = "agents/evaluator.toml"
 
 [agents.qa-evaluator]
-description = "User-perspective behavioral QA evaluator for captured evidence. Read .codex/agents/qa-evaluator.md first."
+description = "${prefix}User-perspective behavioral QA evaluator for captured evidence. Read .codex/agents/qa-evaluator.md first."
 config_file = "agents/qa-evaluator.toml"
 
 [agents.implementer]
-description = "Checklist-driven implementer for one task per spawn. Read .codex/agents/implementer.md first."
+description = "${prefix}Checklist-driven implementer for one task per spawn. Read .codex/agents/implementer.md first."
 config_file = "agents/implementer.toml"
 
 [agents.test-writer]
-description = "Coverage-obsessed test writer, external services mocked. Read .codex/agents/test-writer.md first."
+description = "${prefix}Coverage-obsessed test writer, external services mocked. Read .codex/agents/test-writer.md first."
 config_file = "agents/test-writer.toml"
 
 [agents.terminal]
-description = "Command runner — any Bash or PowerShell command; returns only the result the caller asked for. Read .codex/agents/terminal.md first."
+description = "${prefix}Command runner — any Bash or PowerShell command; returns only the result the caller asked for. Read .codex/agents/terminal.md first."
 config_file = "agents/terminal.toml"
 
 [agents.diagnostician]
-description = "Root-cause diagnostician for task failures after fix-cycle exhaustion. Read .codex/agents/diagnostician.md first."
+description = "${prefix}Root-cause diagnostician for task failures after fix-cycle exhaustion. Read .codex/agents/diagnostician.md first."
 config_file = "agents/diagnostician.toml"
 
 [agents.evidence-collector]
-description = "QA evidence gatherer for user-facing surfaces; never issues verdicts. Read .codex/agents/evidence-collector.md first."
+description = "${prefix}QA evidence gatherer for user-facing surfaces; never issues verdicts. Read .codex/agents/evidence-collector.md first."
 config_file = "agents/evidence-collector.toml"
 EOF
 }
@@ -1584,6 +1684,118 @@ settings_json_min() {
   }
 }
 EOF
+}
+
+# The kit-guard PreToolUse / preToolUse blocks are defined once, here, and used by both the
+# kit-guard-only config and the combined telemetry config (the two outputs share these bytes).
+settings_hooks_claude_pretooluse() {
+  cat <<'EOF'
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/_kit/kit-guard.sh\" hook claude"
+          }
+        ]
+      }
+    ]
+EOF
+}
+
+cursor_hooks_pretooluse() {
+  cat <<'EOF'
+    "preToolUse": [
+      {
+        "command": "bash _kit/kit-guard.sh hook cursor",
+        "matcher": "Write|Delete"
+      }
+    ]
+EOF
+}
+
+settings_json_kit_guard() {
+  printf '{\n  "env": {\n    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3"\n  },\n  "hooks": {\n%s\n  }\n}\n' "$(settings_hooks_claude_pretooluse)"
+}
+
+cursor_hooks_json_kit_guard() {
+  printf '{\n  "version": 1,\n  "hooks": {\n%s\n  }\n}\n' "$(cursor_hooks_pretooluse)"
+}
+
+# Hook configs for a run that creates the file and has flags.hook_telemetry on (with or without
+# kit_guard). Keys in order: PreToolUse (kit_guard only), Stop, SubagentStop, StopFailure — the
+# kit-guard-only and flag-off files stay the functions above. Both harness commands are guarded so
+# a fresh clone (no _kit/ yet) shows no hook error on every stop: Claude Code ends in `|| true`,
+# Cursor in `|| echo '{}'` (its hook protocol expects a JSON object on stdout).
+settings_hooks_claude_stops() {
+  cat <<'EOF'
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"
+          }
+        ]
+      }
+    ]
+EOF
+}
+
+settings_json_hooks() {
+  local pre="" stops
+  if flag_is kit_guard; then
+    pre="$(settings_hooks_claude_pretooluse),"$'\n'
+  fi
+  stops="$(settings_hooks_claude_stops)"
+  printf '{\n  "env": {\n    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3"\n  },\n  "hooks": {\n%s%s\n  }\n}\n' "$pre" "$stops"
+}
+
+cursor_hooks_stops() {
+  cat <<'EOF'
+    "stop": [
+      {
+        "command": "test -f _kit/hook-log.sh && bash _kit/hook-log.sh hook cursor || echo '{}'",
+        "loop_limit": 1
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "test -f _kit/hook-log.sh && bash _kit/hook-log.sh hook cursor || echo '{}'",
+        "loop_limit": 1
+      }
+    ]
+EOF
+}
+
+cursor_hooks_json_hooks() {
+  local pre="" stops
+  if flag_is kit_guard; then
+    pre="$(cursor_hooks_pretooluse),"$'\n'
+  fi
+  stops="$(cursor_hooks_stops)"
+  printf '{\n  "version": 1,\n  "hooks": {\n%s%s\n  }\n}\n' "$pre" "$stops"
 }
 
 # ---------------------------------------------------------------------------
@@ -1756,6 +1968,17 @@ load_global_tokens() {
     map_set TOKENS LOOP_WORKTREE_DEFAULT 1
   else
     map_set TOKENS LOOP_WORKTREE_DEFAULT 0
+  fi
+  if flag_is opt_in; then
+    map_set TOKENS OPT_IN_AGENT_PREFIX 'Orchestration-kit agent — spawn only from the /feature, /research or /align-docs workflow, never for ordinary work. '
+    map_set TOKENS OPT_IN_FEATURE_SENTENCE 'Opt-in — runs only when the user types /feature.'
+    map_set TOKENS OPT_IN_RESEARCH_SUFFIX ' Opt-in — runs only when the user types /research.'
+    map_set TOKENS OPT_IN_MEMORY_CAPTURE_SUFFIX ' Opt-in — runs only when the user types /memory-capture.'
+  else
+    map_set TOKENS OPT_IN_AGENT_PREFIX ""
+    map_set TOKENS OPT_IN_FEATURE_SENTENCE 'Invoke for any non-trivial feature.'
+    map_set TOKENS OPT_IN_RESEARCH_SUFFIX ""
+    map_set TOKENS OPT_IN_MEMORY_CAPTURE_SUFFIX ""
   fi
 }
 
@@ -1943,7 +2166,7 @@ emit_single_copy() {
   set_harness_tokens "$PRIMARY"
   local f dest content
   if flag_is loop; then
-    for f in loop.sh loop.ps1 breaker.sh breaker.ps1 PROMPT.md; do
+    for f in loop.sh breaker.sh PROMPT.md; do
       if [ -f "$TPL/loop/$f" ]; then
         resolve_template "$TPL/loop/$f" "loop/$f"
         content="$RESOLVED"
@@ -1951,19 +2174,46 @@ emit_single_copy() {
       fi
     done
   fi
-  for f in log-spawn.sh memory.sh memory.ps1; do
+  for f in log-spawn.sh memory.sh trace-lint.sh; do
     if [ -f "$TPL/tools/$f" ]; then
       resolve_template "$TPL/tools/$f" "tools/$f"
       content="$RESOLVED"
       put_emit "_kit/$f" "$content"
     fi
   done
-  # Windows launchers: byte copies of the one template (CRLF must survive, so
-  # never through read_file_raw_into / resolve_template).
+  if flag_is kit_guard; then
+    if [ -f "$TPL/tools/kit-guard.sh" ]; then
+      resolve_template "$TPL/tools/kit-guard.sh" "tools/kit-guard.sh"
+      content="$RESOLVED"
+      put_emit "_kit/kit-guard.sh" "$content"
+    fi
+    if [ -f "$TPL/tools/bash-launcher.cmd" ]; then
+      tpl_bytes_into content "$TPL/tools/bash-launcher.cmd"
+      map_set EMIT "_kit/kit-guard.cmd" "$content"
+    fi
+  fi
+  if flag_is hook_telemetry; then
+    if [ -f "$TPL/tools/hook-log.sh" ]; then
+      resolve_template "$TPL/tools/hook-log.sh" "tools/hook-log.sh"
+      content="$RESOLVED"
+      put_emit "_kit/hook-log.sh" "$content"
+    fi
+    if [ -f "$TPL/tools/bash-launcher.cmd" ]; then
+      tpl_bytes_into content "$TPL/tools/bash-launcher.cmd"
+      map_set EMIT "_kit/hook-log.cmd" "$content"
+    fi
+  fi
+  # Windows launchers (_kit/memory.cmd, _kit/log-spawn.cmd, _kit/trace-lint.cmd,
+  # _loop/loop.cmd when loop is on): byte copies of the one template (CRLF must
+  # survive, so never through read_file_raw_into / resolve_template).
   if [ -f "$TPL/tools/bash-launcher.cmd" ]; then
     tpl_bytes_into content "$TPL/tools/bash-launcher.cmd"
     map_set EMIT "_kit/memory.cmd" "$content"
     map_set EMIT "_kit/log-spawn.cmd" "$content"
+    map_set EMIT "_kit/trace-lint.cmd" "$content"
+    if flag_is loop; then
+      map_set EMIT "_loop/loop.cmd" "$content"
+    fi
   fi
   if [ -f "$TPL/memory/README.md" ]; then
     resolve_template "$TPL/memory/README.md" "memory/README.md"
@@ -2070,6 +2320,45 @@ EOF
   if [ "$ty" != missing ]; then
     if [ "$ty" != boolean ]; then
       add_problem "flags.loop_worktree must be a boolean"
+    fi
+  fi
+  jt_q_into ty "$ANSWERS" type flags opt_in
+  if [ "$ty" != missing ]; then
+    if [ "$ty" != boolean ]; then
+      add_problem "flags.opt_in must be a boolean"
+    else
+      jt_q_into flag_is "$ANSWERS" istrue flags opt_in
+      if [ "$flag_is" = true ]; then
+        flag_set opt_in true
+      else
+        flag_set opt_in false
+      fi
+    fi
+  fi
+  jt_q_into ty "$ANSWERS" type flags kit_guard
+  if [ "$ty" != missing ]; then
+    if [ "$ty" != boolean ]; then
+      add_problem "flags.kit_guard must be a boolean"
+    else
+      jt_q_into flag_is "$ANSWERS" istrue flags kit_guard
+      if [ "$flag_is" = true ]; then
+        flag_set kit_guard true
+      else
+        flag_set kit_guard false
+      fi
+    fi
+  fi
+  jt_q_into ty "$ANSWERS" type flags hook_telemetry
+  if [ "$ty" != missing ]; then
+    if [ "$ty" != boolean ]; then
+      add_problem "flags.hook_telemetry must be a boolean"
+    else
+      jt_q_into flag_is "$ANSWERS" istrue flags hook_telemetry
+      if [ "$flag_is" = true ]; then
+        flag_set hook_telemetry true
+      else
+        flag_set hook_telemetry false
+      fi
     fi
   fi
   jt_q_into FORGE_KIND "$ANSWERS" rawe forge kind
@@ -2203,8 +2492,8 @@ planned_git_lines() {
   GA_LINES=('_memory/** text eol=lf' '*.cmd -text')
   GI_LINES=('_kit/' '_memory/.index/' '_memory/raw/' '_memory/work/')
   if flag_is loop; then
-    GA_LINES+=('_memory/loop/LEARNINGS.md merge=union' '_memory/loop/ESCALATIONS.md merge=union' '*.sh text eol=lf' '*.ps1 text eol=lf')
-    GI_LINES+=('_memory/loop/breaker-state.json')
+    GA_LINES+=('_memory/loop/LEARNINGS.md merge=union' '_memory/loop/ESCALATIONS.md merge=union' '*.sh text eol=lf')
+    GI_LINES+=('_memory/loop/breaker-state.json' '_memory/loop/ledger.jsonl' '_memory/loop/attempts/')
   fi
 }
 
@@ -2651,7 +2940,7 @@ plan_prune_and_foreign() {
           PRUNED_P=$((PRUNED_P + 1))
           dry_action prune "$p"
         else
-          bump_warn
+          record_warn_line "warning: kept $p: kit-owned file from an earlier emit, modified locally, no longer emitted — delete it or keep it as your own"
           dry_action warn "$p"
         fi
       else
@@ -2665,7 +2954,7 @@ plan_prune_and_foreign() {
         map_set NEWF "$p" "$disk"
         dry_action keep "$p"
       else
-        bump_warn
+        record_warn_line "warning: $p is recorded in the previous manifest but missing — nothing to prune"
         dry_action warn "$p"
       fi
     fi
@@ -2708,7 +2997,7 @@ do_prune() {
 
 
 # Pointers / settings / gitignore — side effects, not emit-set (except
-# settings.json / config.toml when this run creates or appends them).
+# settings.json / hooks.json / config.toml when this run creates or appends them).
 harness_wanted() {
   local h
   for h in ${HARNESSES[@]+"${HARNESSES[@]}"}; do
@@ -2725,18 +3014,87 @@ settings_has_spawn_depth() { # settings.json path → 0 when .env.CLAUDE_CODE_MA
 }
 
 put_optional_kit_files() {
-  local cf light tables existing out
+  local cf light tables existing out sf hf
   if harness_wanted claude-code; then
-    if [ ! -f "$ROOT/.claude/settings.json" ]; then
-      put_emit ".claude/settings.json" "$(settings_json_min)"
-    elif ! settings_has_spawn_depth "$ROOT/.claude/settings.json"; then
-      bump_warn
-      dry_action warn ".claude/settings.json"
-      printf 'emit: .claude/settings.json present without CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH — left untouched\n' >&2
+    sf="$ROOT/.claude/settings.json"
+    if [ ! -f "$sf" ]; then
+      if flag_is hook_telemetry; then
+        put_emit ".claude/settings.json" "$(settings_json_hooks)"
+      elif flag_is kit_guard; then
+        put_emit ".claude/settings.json" "$(settings_json_kit_guard)"
+      else
+        put_emit ".claude/settings.json" "$(settings_json_min)"
+      fi
+    else
+      if flag_is kit_guard; then
+        if ! grep -Fq '_kit/kit-guard.sh' "$sf"; then
+          record_warn_line 'warning: .claude/settings.json exists without the kit-guard hook — left untouched; merge into it: {"hooks":{"PreToolUse":[{"matcher":"Edit|Write|MultiEdit|NotebookEdit","hooks":[{"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR/_kit/kit-guard.sh\" hook claude"}]}]}}'
+        fi
+      elif grep -Fq '_kit/kit-guard.sh' "$sf"; then
+        record_warn_line "warning: .claude/settings.json still references _kit/kit-guard.sh but flags.kit_guard is off — remove that hook entry"
+      fi
+      if flag_is hook_telemetry; then
+        if ! grep -Fq '_kit/hook-log.sh' "$sf"; then
+          record_warn_line 'warning: .claude/settings.json exists without the hook-telemetry hooks — left untouched; merge into it: {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"}]}],"SubagentStop":[{"hooks":[{"type":"command","command":"test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"}]}]}}'
+        elif ! grep -Fq 'StopFailure' "$sf"; then
+          record_warn_line 'warning: .claude/settings.json has the hook-telemetry hooks but no StopFailure hook — left untouched; add to its "hooks" object: "StopFailure":[{"hooks":[{"type":"command","command":"test -f \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" && bash \"$CLAUDE_PROJECT_DIR/_kit/hook-log.sh\" hook claude || true"}]}]'
+        fi
+      elif grep -Fq '_kit/hook-log.sh' "$sf"; then
+        record_warn_line "warning: .claude/settings.json still references _kit/hook-log.sh but flags.hook_telemetry is off — remove those hook entries"
+      fi
+      if ! settings_has_spawn_depth "$sf"; then
+        bump_warn
+        dry_action warn ".claude/settings.json"
+        printf 'emit: .claude/settings.json present without CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH — left untouched\n' >&2
+      fi
+    fi
+  fi
+  if harness_wanted cursor; then
+    hf="$ROOT/.cursor/hooks.json"
+    if [ ! -f "$hf" ]; then
+      if flag_is hook_telemetry; then
+        put_emit ".cursor/hooks.json" "$(cursor_hooks_json_hooks)"
+      elif flag_is kit_guard; then
+        put_emit ".cursor/hooks.json" "$(cursor_hooks_json_kit_guard)"
+      fi
+    else
+      if flag_is kit_guard; then
+        if ! grep -Fq '_kit/kit-guard.sh' "$hf"; then
+          record_warn_line 'warning: .cursor/hooks.json exists without the kit-guard hook — left untouched; add to its "hooks" object: "preToolUse":[{"command":"bash _kit/kit-guard.sh hook cursor","matcher":"Write|Delete"}]'
+        fi
+      elif grep -Fq '_kit/kit-guard.sh' "$hf"; then
+        record_warn_line "warning: .cursor/hooks.json still references _kit/kit-guard.sh but flags.kit_guard is off — remove that hook entry"
+      fi
+      if flag_is hook_telemetry; then
+        if ! grep -Fq '_kit/hook-log.sh' "$hf"; then
+          record_warn_line 'warning: .cursor/hooks.json exists without the hook-telemetry hooks — left untouched; add to its "hooks" object: "stop":[{"command":"test -f _kit/hook-log.sh && bash _kit/hook-log.sh hook cursor || echo '"'"'{}'"'"'","loop_limit":1}],"subagentStop":[{"command":"test -f _kit/hook-log.sh && bash _kit/hook-log.sh hook cursor || echo '"'"'{}'"'"'","loop_limit":1}]'
+        fi
+      elif grep -Fq '_kit/hook-log.sh' "$hf"; then
+        record_warn_line "warning: .cursor/hooks.json still references _kit/hook-log.sh but flags.hook_telemetry is off — remove those hook entries"
+      fi
+    fi
+  fi
+  if flag_is kit_guard; then
+    if harness_wanted copilot; then
+      record_warn_line "warning: flags.kit_guard is partial on copilot: no edit-blocking hook; run emit.sh --check in CI (_kit/ is gitignored)"
+    fi
+    if harness_wanted codex; then
+      record_warn_line "warning: flags.kit_guard is partial on codex: no edit-blocking hook; run emit.sh --check in CI (_kit/ is gitignored)"
+    fi
+  fi
+  if flag_is hook_telemetry; then
+    if harness_wanted copilot; then
+      record_warn_line "warning: flags.hook_telemetry is partial on copilot: no telemetry hook"
+    fi
+    if harness_wanted codex; then
+      record_warn_line "warning: flags.hook_telemetry is partial on codex: no telemetry hook"
     fi
   fi
   if harness_wanted codex; then
     cf="$ROOT/.codex/config.toml"
+    if flag_is opt_in; then
+      record_warn_line "warning: flags.opt_in is partial on codex: no kit skills tree to gate, and an existing .codex/config.toml agent table is never rewritten"
+    fi
     ans_model_into light codex light
     tables="$(codex_config_tables "$light")"
     if [ ! -f "$cf" ]; then
@@ -2919,6 +3277,18 @@ write_manifest() {
   if [ "$ty" != missing ]; then
     MT+="$(jt_sub "$ANSWERS" "${J_US}flags${J_US}loop_worktree" "${J_US}options${J_US}loop_worktree")"$'\n'
   fi
+  jt_q_into ty "$ANSWERS" type flags opt_in
+  if [ "$ty" != missing ]; then
+    MT+="$(jt_sub "$ANSWERS" "${J_US}flags${J_US}opt_in" "${J_US}options${J_US}opt_in")"$'\n'
+  fi
+  jt_q_into ty "$ANSWERS" type flags kit_guard
+  if [ "$ty" != missing ]; then
+    MT+="$(jt_sub "$ANSWERS" "${J_US}flags${J_US}kit_guard" "${J_US}options${J_US}kit_guard")"$'\n'
+  fi
+  jt_q_into ty "$ANSWERS" type flags hook_telemetry
+  if [ "$ty" != missing ]; then
+    MT+="$(jt_sub "$ANSWERS" "${J_US}flags${J_US}hook_telemetry" "${J_US}options${J_US}hook_telemetry")"$'\n'
+  fi
   MT+="${J_US}seedFiles"$'\t'array$'\t\n'
   if [ -n "$SEED_CONTENT" ]; then
     mt_str "${J_US}seedFiles${J_US}0" "_memory/loop/backlog.md"
@@ -3022,66 +3392,6 @@ verify_all() {
       rc=1
     fi
   fi
-  local ps1_files=() q
-  for p in ${EMIT_N[@]+"${EMIT_N[@]}"}; do
-    [[ "$p" == *.ps1 ]] && ps1_files+=("$p")
-  done
-  if [ ${#ps1_files[@]} -gt 0 ]; then
-    if command -v pwsh >/dev/null 2>&1; then
-      local ps1_abs=() ps1_fail=() fp abs rel
-      for p in "${ps1_files[@]}"; do
-        if [ -f "$ROOT/$p" ]; then
-          ps1_abs+=("$ROOT/$p")
-        fi
-      done
-      if [ ${#ps1_abs[@]} -gt 0 ]; then
-        local pwsh_rc=0 ps1_out
-        PS1_VERIFY_LIST="$(printf '%s\n' "${ps1_abs[@]}")"
-        export PS1_VERIFY_LIST
-        ps1_out="$(pwsh -NoProfile -Command '
-          foreach ($fp in ($env:PS1_VERIFY_LIST -split "`n")) {
-            if (-not $fp) { continue }
-            $e = $null
-            [void][System.Management.Automation.Language.Parser]::ParseFile($fp, [ref]$null, [ref]$e)
-            if ($e) { Write-Output $fp }
-          }
-        ' 2>/dev/null)" || pwsh_rc=$?
-        unset PS1_VERIFY_LIST
-        if [ "$pwsh_rc" -ne 0 ]; then
-          for p in "${ps1_files[@]}"; do
-            if [ -f "$ROOT/$p" ]; then
-              record_verify "verify: $p: pwsh parse failed"
-              rc=1
-            fi
-          done
-        else
-          while IFS= read -r abs || [ -n "$abs" ]; do
-            [ -z "$abs" ] && continue
-            abs="${abs%$'\r'}"
-            ps1_fail+=("$abs")
-          done <<EOF
-$ps1_out
-EOF
-          for p in "${ps1_files[@]}"; do
-            abs="$ROOT/$p"
-            if [ ! -f "$abs" ]; then
-              continue
-            fi
-            for fp in ${ps1_fail[@]+"${ps1_fail[@]}"}; do
-              if [ "$fp" = "$abs" ]; then
-                record_verify "verify: $p: pwsh parse failed"
-                rc=1
-                break
-              fi
-            done
-          done
-        fi
-      fi
-    else
-      bump_warn
-      printf 'emit: pwsh not on PATH — skipped .ps1 parse\n' >&2
-    fi
-  fi
   if [ ${#VERIFY_ERRS[@]} -gt 0 ]; then
     local combined=()
     local w
@@ -3109,7 +3419,7 @@ print_summary() {
 # main
 # ---------------------------------------------------------------------------
 run_emit() {
-  local id n rc bp _mid
+  local id n rc bp
 
   map_clear JTQ
   load_old_manifest
@@ -3159,11 +3469,7 @@ run_emit() {
     exit "$rc"
   fi
 
-  for _mid in "${MISSING_BOOTSTRAP[@]+"${MISSING_BOOTSTRAP[@]}"}"; do
-    [ -z "$_mid" ] && continue
-    bump_warn
-  done
-
+  # Unanswered bootstrap ids are not warnings: --check-answers lists them, and they are not counted.
   collect_emit_set
   put_optional_kit_files
   flush_syntax

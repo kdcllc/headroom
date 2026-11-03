@@ -3,7 +3,8 @@
 When `goal.md`'s `phases.ladder` is `auto` (loop-created goals set it; interactive
 goals default to `escalate`, where the user is offered the ladder as an explicit
 option), this ladder applies after **cycle-3 exhaustion** (NEEDS FIXES after three
-implement→evaluate cycles without PASS). **Early arbitration at detection** is the
+implement→evaluate cycles without PASS). Under `ladder: auto` the ladder may also start
+early, per `reference/fix-cycles.md` § Early ladder entry. **Early arbitration at detection** is the
 exception — see below. Apply rungs in order; every ladder fix attempt is
 re-evaluated — there is no exception.
 
@@ -16,22 +17,35 @@ arbitration. `criteria-defect` routing wins over line-patch-only resume.
 
 ## Rung 5 — arbitration (unanimity check)
 
-If all three evaluator verdicts in the orchestration log flagged the same
-required-fix item (unanimous-failure heuristic — compare items with their trailing
-`[line-patch]` / `[structural]` tags stripped, so a tag change across cycles does not
+Arbitration also runs when the **drift trigger** fires: the cycle 2–3 verdicts recorded
+in the orchestration log together carry ≥ 2 `[new]` items.
+Demoted `[backlog] [late]` notes count toward this total.
+The unanimity heuristic and
+the drift trigger are alternatives; either one runs rung 5, and the outcomes are unchanged.
+For a drift-triggered arbitration, the arbiter gets the same inputs as a unanimity-triggered one. The verdicts
+already carry the tags, and `ambiguous` is the defect type the drift most often points to.
+
+If the evaluator verdicts in the orchestration log for
+every cycle that ran (three, fewer on early ladder entry) flagged the same
+required-fix item (unanimous-failure heuristic — compare items after stripping the
+justification clause (from its start (` — missed earlier:` or ` — reverses cycle `)
+through the end of the item) when present, otherwise with trailing
+`[line-patch]` / `[structural]` tags stripped and trailing provenance tags (`[carried]` /
+`[regression]` / `[new]`) stripped — tags stripped so a tag change across cycles does not
 make the same item count as different), spawn `evaluator` in
 **arbitration mode** on `opus` with the task file
-(including its Acceptance Criteria), all three verdicts, and all three implementer
-reports. Outcomes:
+(including its Acceptance Criteria), and the verdicts and implementer reports of
+every cycle that ran (three, fewer on early ladder entry). Outcomes:
 `criteria-defective` → escalate to the user carrying the named defective criterion
 **verbatim**; arbiter/primary disagreement → escalate (never auto-resolve);
 `criteria-sound` → continue to rung 4.
 
 ## Rung 4 — diagnosis-first
 
-Spawn `diagnostician` with the task file (including its Acceptance Criteria), all
-three implementer reports and evaluator verdicts, and the targeted verification
-command. If its
+Spawn `diagnostician` with the task file (including its Acceptance Criteria), the
+implementer reports and evaluator verdicts of
+every cycle that ran (three, fewer on early ladder entry), and the targeted
+verification command. If its
 **Signature Declaration** matches a previously tried fix signature → skip to rung 6
 if it recommended a split, else escalate. Otherwise run **ONE** diagnosis-driven
 implementation attempt: fresh `implementer` on `opus` using the
@@ -54,8 +68,8 @@ Escalate to the user with the full ladder history.
 
 Character-consistent with `.claude/ORCHESTRATION.md`:
 
-- At most **3 additional implementation attempts** after cycle 3, summed across rungs 4
-  and 6.
+- At most **3 additional implementation attempts** after the last fix cycle (cycle 3, or earlier on early entry),
+  summed across rungs 4 and 6.
 - The diagnosis-driven implementation attempt costs 1 of the 3. Each rung-6 subtask
   implement→evaluate cycle costs 1 of the 3. Before splitting, compare the
   failing-subtask count against the remaining budget — if the count exceeds the
@@ -63,11 +77,15 @@ Character-consistent with `.claude/ORCHESTRATION.md`:
 - A **repeated failure signature** stops the ladder immediately: the evaluator's
   required-fixes list as recorded in the orchestration log, identical to an earlier
   cycle's list item-for-item after normalizing whitespace and list numbering and
-  stripping trailing `[line-patch]` / `[structural]` tags from each item (signature
-  identity ignores those tags).
+  stripping trailing `[line-patch]` / `[structural]` tags and trailing provenance tags
+  (`[carried]` / `[regression]` / `[new]`) from each item and the justification clause
+  (from its start (` — missed earlier:` or ` — reverses cycle `) through the end of the
+  item) from each item when present (signature identity ignores those kind and provenance
+  tags). Issue keys are logged per the task-criteria skill's `### Issue key` rule, and the
+  signature rule above is unchanged.
 - Every rung transition, spawn, and guard trip is an orchestration-log entry recording
   the rung name.
 
 Token/cost budgets are not a guard in interactive mode (no harness exposes true usage to the
 orchestrator); the headless loop records real usage per iteration via
-`LOOP_USAGE_FORMAT` — gating on it is a future knob, not this ladder's.
+`LOOP_USAGE_FORMAT` — the bash loop driver's opt-in `LOOP_*_BUDGET_*` knobs gate on it at loop level, not in this ladder.

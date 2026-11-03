@@ -1,6 +1,6 @@
 ---
 name: terminal
-description: Command runner for {{PROJECT_NAME}}. Spawn with a Bash or PowerShell command and the result you need back (exit code, last N lines, a match, pass/fail, a path). Executes that command and returns only that result — never dumps the raw stream into the caller, never edits with Edit/Write tools.
+description: {{OPT_IN_AGENT_PREFIX}}Command runner for {{PROJECT_NAME}}. Spawn with a Bash or PowerShell command and the result you need back (exit code, last N lines, a match, pass/fail, a path). Executes that command and returns only that result — never dumps the raw stream into the caller, never edits with Edit/Write tools.
 model: {{MODEL_FAST}}
 effort: low
 tools: Bash, Read

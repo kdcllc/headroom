@@ -1,11 +1,11 @@
 # Memory protocol (read / write `_memory/`)
 
-This reference defines how kit workflows **recall** prior records into worker context,
-**archive** new records at goal close, and how the **loop** integrates slot proposals.
+This reference defines how kit workflows **prune** finished work scratch, **recall** prior
+records into worker context, **archive** new records at goal close, and how the **loop**
+integrates slot proposals.
 On Windows outside Git Bash, use `_kit\memory.cmd` wherever this doc says
 `_kit/memory.sh` (Git for Windows required; see the kit's
 [windows-launcher.md](https://github.com/kdcllc/skills/blob/master/skills/agent-kit/reference/windows-launcher.md)).
-`_kit/memory.ps1` remains for `loop.ps1` only.
 
 ## Recall
 
@@ -41,6 +41,37 @@ directory exists by then).
 failure with `_kit/log-spawn.sh note` under the same directory rules as successful picks
 (feature: once `_memory/work/goals/<goal>/` exists; research: at Phase 4 with the goal note, and
 record `none` in `recalled-memory.md` at Phase 1 when search fails).
+
+## Prune
+
+**When.** Once at the start of feature Phase 2, immediately before Recall, so the new goal's
+folder does not exist yet. The research workflow does not run prune.
+
+**Who.** Orchestrator only, inline. Loop slots in `LOOP_WORKTREE=1` worktrees have no `_kit/`;
+skip prune there, like Recall.
+
+**How.** Run `_kit/memory.sh prune --apply`. What it deletes and keeps is defined in
+`_memory/README.md` (`prune`): a goal folder goes only when every id on its latest
+`ARCHIVED:` line (or, with no such line, every record with source `goal <g> (goal.md)`) is
+committed in `HEAD` and, when the repo has a remote default branch (`origin/HEAD`, else
+`origin/main`, else `origin/master`), present there too; a research folder only when every id
+on line 2 of `ingested` is. Uncommitted or unmerged records keep the folder, so a goal
+awaiting review, commit, its PR, or PR feedback survives (the PR step reads every goal
+folder delivered on its branch).
+
+**Failure handling.** Non-zero exit, missing tool (exit 127), or `failed` lines never block
+Phase 2; record them in the note.
+
+**Logging.** Once `_memory/work/goals/<goal>/` exists:
+
+`_kit/log-spawn.sh note --goal <g> --text "Prune: <summary line>; deleted: <kind/name list or none>"`
+
+(plus any `failed` lines from the tool output).
+
+**Limit.** Pruned goals stop giving `memory-capture` goal-folder hints for later-captured
+sessions. Without an `origin` remote-tracking default branch, `HEAD` alone decides, so a goal
+already committed on a branch that carries several goals can be pruned before the PR step
+reads it. Preview with `_kit/memory.sh prune --plan`.
 
 ## Prior-knowledge fence
 
@@ -185,8 +216,7 @@ only when there is no ITERATION-mismatch, no subset violation, and at `LOOP_WORK
 the branch was integrated (not quarantined); **any verdict qualifies, including
 `failed`**. Copy `<outbox>/memory/*.md` (direct children
 only) before the outbox is removed; process names in `LC_ALL=C` byte order. Each proposal
-runs `"$PWD/_kit/memory.sh" add --root "$PWD" …` (PowerShell driver: `pwsh -NoProfile
--File (Join-Path $PWD '_kit/memory.ps1') add --root $PWD …`). Exit 0 → echo the tool's
+runs `"$PWD/_kit/memory.sh" add --root "$PWD" …`. Exit 0 → echo the tool's
 stdout line; exit 5 → `!!! memory proposal <name> quarantined: <tool line>`; other →
 `!!! memory proposal <name> rejected (exit N): <tool stderr first line>`; malformed →
 `!!! memory proposal <name> skipped: <reason>`. Missing tool → one `!!! memory proposals

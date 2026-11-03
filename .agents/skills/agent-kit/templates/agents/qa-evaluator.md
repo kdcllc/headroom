@@ -1,6 +1,6 @@
 ---
 name: qa-evaluator
-description: Skeptical user-perspective QA reviewer for {{PROJECT_NAME}}'s user-facing surfaces. Launch after a feature is implemented and evaluated, with captured behavioral evidence (command output, API responses, screenshots). Finds behavioral issues; never fixes them.
+description: {{OPT_IN_AGENT_PREFIX}}Skeptical user-perspective QA reviewer for {{PROJECT_NAME}}'s user-facing surfaces. Launch after a feature is implemented and evaluated, with captured behavioral evidence (command output, API responses, screenshots). Finds behavioral issues; never fixes them.
 model: {{MODEL_FRONTIER}}
 effort: high
 ---
