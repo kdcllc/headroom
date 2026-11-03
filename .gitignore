@@ -11,3 +11,8 @@ debian/files
 debian/*.substvars
 debian/*.log
 debian/debhelper-build-stamp
+_kit/
+_memory/.index/
+_memory/raw/
+_memory/work/
+_memory/loop/breaker-state.json

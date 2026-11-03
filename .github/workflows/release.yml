@@ -60,8 +60,13 @@ jobs:
           scripts/set-version.sh "$VERSION" "$msg"
 
       - name: Build .deb
+        timeout-minutes: 3
+        # same as ci.yml: debian/rules directly skips dpkg-genbuildinfo (~2.5 min on runners)
+        env:
+          DEB_RULES_REQUIRES_ROOT: "no"
         run: |
-          dpkg-buildpackage -us -uc -b
+          debian/rules clean
+          debian/rules binary
           mkdir -p dist
           mv ../headroom_*_all.deb dist/
           cp dist/headroom_*_all.deb dist/headroom_latest_all.deb
